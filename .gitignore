@@ -1,0 +1,13 @@
+# Binários compilados
+bin/
+
+# Artefatos de compilação
+*.o
+*.out
+*.exe
+
+# Arquivos de editor / sistema
+.vscode/
+.idea/
+*.swp
+.DS_Store
