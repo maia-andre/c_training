@@ -1,5 +1,9 @@
-# Binários compilados (sem extensão no Linux)
+# Binários compilados (jogos e apps vão para bin/ via Makefile)
+bin/
+
+# Binário do plotter, se compilado fora do bin/ (ex.: build manual com cc)
 plotter
+apps/plotter/plotter
 
 # Artefatos de compilação C
 *.o
@@ -12,4 +16,9 @@ plotter
 
 # Diretórios de build comuns
 build/
-bin/
+
+# Arquivos de editor / sistema
+.vscode/
+.idea/
+*.swp
+.DS_Store
