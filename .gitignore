@@ -1,0 +1,15 @@
+# Binários compilados (sem extensão no Linux)
+plotter
+
+# Artefatos de compilação C
+*.o
+*.obj
+*.a
+*.so
+*.so.*
+*.out
+*.exe
+
+# Diretórios de build comuns
+build/
+bin/
