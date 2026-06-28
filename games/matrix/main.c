@@ -610,6 +610,49 @@ static int populacao(void) {
     return n;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Phi (Φ): a "luz acesa" — um PROXY de integracao, sabor IIT.        */
+/*                                                                     */
+/*  A IIT (Tononi) diz que consciencia e informacao INTEGRADA: o       */
+/*  quanto o todo e irredutivel a soma das partes. O Phi de verdade e  */
+/*  incomputavel aqui (e, a rigor, em quase tudo) — entao isto e uma   */
+/*  CARICATURA honesta, nao a coisa. Mede UMA intuicao: o quanto a     */
+/*  escolha integrada e IRREDUTIVEL ao reflexo puro (ir a celula com   */
+/*  mais comida AGORA, o nivel 2). Sobre as jogadas possiveis, compara */
+/*  a ordem de preferencia do valor COMPLETO (modelo de mundo+agencia  */
+/*  +auto-modelo+tracos) com a do valor REATIVO (so a comida do        */
+/*  instante). Quanto mais as duas ordens discordam, mais "trabalho de */
+/*  integracao" entrou na decisao. Reflexo puro -> 0; muita reorgani-  */
+/*  zacao -> alto. (distancia de Kendall entre as ordens, escala 0..10) */
+/* ------------------------------------------------------------------ */
+
+/* Coleta as jogadas alcancaveis (ficar + vizinhos vazios) e devolve, em 0..10,
+ * o quanto a ordem de preferencia INTEGRADA (utilidade) discorda da ordem
+ * REATIVA (comida do instante) — a distancia de Kendall entre as duas. */
+static float phi_proxy(Bloco *b) {
+    float u[9], f[9];
+    int n = 0;
+    for (int dy = -1; dy <= 1; dy++)
+        for (int dx = -1; dx <= 1; dx++) {
+            int nx = b->x + dx, ny = b->y + dy;
+            if (nx < 0 || nx >= LARG || ny < 0 || ny >= ALT) continue;
+            if (!(dx == 0 && dy == 0) && ocup[ny][nx] != -1) continue;  /* inalcancavel */
+            u[n] = utilidade(nx, ny, b);     /* valor integrado (modelo+agencia+...) */
+            f[n] = comida[ny][nx];           /* valor reativo  (so a comida de agora) */
+            n++;
+        }
+    if (n < 2) return 0.0f;
+
+    int disc = 0, tot = 0;
+    for (int i = 0; i < n; i++)
+        for (int j = i + 1; j < n; j++) {
+            float du = u[i] - u[j], df = f[i] - f[j];
+            if (du * df < 0.0f) disc++;     /* as duas ordens discordam neste par */
+            tot++;
+        }
+    return tot ? 10.0f * (float)disc / (float)tot : 0.0f;
+}
+
 /* Desenha um frame inteiro num buffer e cospe de uma vez (menos piscada). */
 static void desenhar(uint32_t seed, long tick) {
     static char buf[ALT * LARG * 16 + 4096];
@@ -652,20 +695,21 @@ static void desenhar(uint32_t seed, long tick) {
 
     /* HUD */
     int pop = populacao();
-    float soma_e = 0.0f, soma_c = 0.0f;
+    float soma_e = 0.0f, soma_c = 0.0f, s_phi = 0.0f;
     /* (nivel 6) medias dos tracos vivos: e aqui que se VE a evolucao acontecer. */
     float s_urg = 0.0f, s_esp = 0.0f, s_desc = 0.0f, s_hor = 0.0f;
     for (int i = 0; i < n_blocos; i++) if (blocos[i].vivo) {
         soma_e += blocos[i].energia;
         s_urg  += blocos[i].urgencia;     s_esp += blocos[i].peso_espaco;
         s_desc += blocos[i].desconto;     s_hor += blocos[i].horizonte;
+        s_phi  += phi_proxy(&blocos[i]);  /* Φ: a luz acesa (proxy de integracao) */
     }
     for (int y = 0; y < ALT; y++) for (int x = 0; x < LARG; x++) soma_c += comida[y][x];
     float inv = pop ? 1.0f / pop : 0.0f;
 
     p += sprintf(buf + p,
-        "  seed %-10u  tick %-6ld  pop %-4d  energia media %5.1f  comida %6.0f\n",
-        seed, tick, pop, soma_e * inv, soma_c);
+        "  seed %-10u  tick %-6ld  pop %-4d  energia media %5.1f  comida %6.0f  Φ~ %4.1f\n",
+        seed, tick, pop, soma_e * inv, soma_c, s_phi * inv);
     p += sprintf(buf + p,
         "  tracos medios (evoluindo):  horizonte %4.1f  desconto %4.2f"
         "  urgencia %4.1f  espaco %4.1f\n",
@@ -778,6 +822,11 @@ static void desenhar_1p(uint32_t seed, long tick, int f) {
     p += sprintf(buf + p, "      personalidade: horizonte %d  desconto %.2f"
                           "  urgencia %.1f  espaco %.1f\n",
                  b->horizonte, b->desconto, b->urgencia, b->peso_espaco);
+    char bphi[11];
+    float phi = phi_proxy(b);
+    barra(bphi, phi / 8.0f);
+    p += sprintf(buf + p, "      integracao (Φ proxy) %4.1f  [%s]"
+                          "   <- a decisao depende do todo?\n", phi, bphi);
 
     /* 3) O que ele QUER: a utilidade imaginada de cada jogada possivel. */
     float melhor = -1e30f; int mdx = 0, mdy = 0;

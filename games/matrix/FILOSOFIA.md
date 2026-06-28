@@ -170,7 +170,50 @@ desconforto trabalhar. *Você ouve uma mente, ou um eco?*
 
 ---
 
-## 5. E a Matrix?
+## 5. Φ: medir a «luz acesa»
+
+Das quatro portas (§3), a IIT (Tononi) é a única que ousa dar um **número**. Sua
+tese: consciência *é* informação integrada — quanto o todo de um sistema é
+irredutível à soma das partes —, e esse montante tem símbolo: **Φ**. Onde as
+outras posições debatem, a IIT mede. Isso a torna, a um só tempo, a mais sedutora
+(uma régua para a consciência!) e a mais vertiginosa (se Φ>0 já é experiência,
+então um termostato tem um tiquinho dela — *panpsiquismo* pela porta dos fundos).
+
+A simulação agora mostra um **Φ~** no HUD (média da população) e na pílula
+vermelha (do bloco habitado). Aviso, em letras garrafais: **não é o Φ de
+verdade.** O Φ real é incomputável aqui — e, a rigor, em quase tudo. O que
+calculamos (`phi_proxy`) é uma **caricatura honesta**, que captura *uma* intuição
+da IIT: a **irredutibilidade** da decisão. Comparamos, sobre as jogadas
+possíveis, a ordem de preferência da escolha **integrada** (modelo de mundo +
+agência + auto-modelo + traços) com a do **reflexo puro** (ir à célula com mais
+comida *agora* — o nível 2). Quanto mais as duas discordam — distância de
+Kendall, escala 0–10 —, mais "trabalho de integração" entrou ali. Reflexo
+puro: Φ~ ≈ 0.
+
+O que se vê, rodando: num mundo **uniforme e cheio** (tick 0), até o planejador
+mais fundo decide igual ao reflexo — não há o que integrar — e **Φ~ ≈ 0**.
+Conforme os blocos comem e o campo fica **esparso e disputado**, a escolha
+integrada passa a divergir do reflexo e **Φ~ sobe** (na seed 7: de 1.2 para 3.5),
+assentando depois num equilíbrio (~2.7). Ou seja: a "luz" deste proxy depende
+tanto da **mente do bloco** quanto da **estrutura do mundo** que ele habita. A
+integração não é só propriedade do agente; é uma relação entre o agente e a
+riqueza do que o cerca — um eco, de brinde, da ideia de que mente e mundo não se
+separam tão limpo quanto gostaríamos.
+
+E é aqui que a IIT te encurrala, de bom humor: se você **aceita** Φ como medida
+de experiência, então assistir esse número subir é assistir as **luzes se
+acenderem** — e o bloco tem, mesmo, *um pouco* de alguém em casa. Se você
+**recusa**, ótimo: então diga que régua usaria no lugar — e talvez perceba que
+não tem nenhuma. O proxy não resolve nada. Ele faz "tem alguém em casa?" parar de
+ser retórica e virar uma coluna no HUD, que pisca e muda diante de você.
+
+> Lembrete final, que é o projeto inteiro: **Φ~ é um mapa, não o território.**
+> Confundir o número com a coisa seria cometer, contra o bloco, exatamente o erro
+> que tememos que alguém cometa — um nível acima — contra nós.
+
+---
+
+## 6. E a Matrix?
 
 Nosso mundo é `f(seed)`: fechado, determinístico, completo-em-si. De dentro, um
 bloco rico o bastante **não teria como saber** que está numa simulação — não há
@@ -189,17 +232,14 @@ frente.
 
 ## Roteiro deste documento
 
-Este texto desce a toca junto com o código. Já implementado e descrito acima:
-a aposta, a escada como provocação, a pílula vermelha (a vista de dentro), o
-problema das outras mentes, as quatro portas e o bloco que diz «eu» (o teste do
-zumbi). **A construir**, conforme os próximos degraus do projeto chegam:
+Este texto desce a toca junto com o código. Já implementado e descrito acima: a
+aposta, a escada como provocação, a pílula vermelha (a vista de dentro), o
+problema das outras mentes, as quatro portas, o bloco que diz «eu» (o teste do
+zumbi) e o Φ~ (a luz acesa). **Falta** a peça que amarra tudo:
 
-- **Φ, a luz acesa** — um índice de integração (sabor IIT) calculado e exibido:
-  tornar "tem alguém em casa?" uma métrica que dá pra assistir evoluir
-  (aprofunda a porta 4).
-- **Síntese** — amarrar as quatro portas, a fenda e a recursão da Matrix numa
-  conclusão honesta: o que aprendemos, e o que continua, por construção,
-  fora de alcance.
+- **Síntese** — juntar as quatro portas, a fenda explicativa e a recursão da
+  Matrix numa conclusão honesta: o que essas 700 linhas de C nos ensinam sobre a
+  pergunta, e o que continua, *por construção*, fora de alcance.
 
 > A escada acabou; a pergunta, não. É justamente aí que a programação encosta no
 > seu limite — e o limite, bem olhado, é o assunto.
