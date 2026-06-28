@@ -687,6 +687,48 @@ static void barra(char *out, float frac) {
     out[10] = '\0';
 }
 
+/* (Ponto 2 — o bloco que diz "eu") Monta, SO a partir do que o bloco percebe e
+ * sente, algumas frases em PRIMEIRA PESSOA: a "voz" dele. Nada de novo entra no
+ * mundo — e a mesma informacao da pilula vermelha, dita como auto-relato. mdx/mdy
+ * e a jogada ja escolhida (para a fala bater com a decisao exibida). O ponto
+ * filosofico (o teste do zumbi) esta no FILOSOFIA.md. */
+static void auto_relato(const Bloco *b, int mdx, int mdy, char *out, int cap) {
+    int n = 0;
+    float fome = 1.0f - b->energia / SACIADO;
+    if (fome < 0.0f) fome = 0.0f;
+    if (fome > 1.0f) fome = 1.0f;
+
+    const char *sentir =
+        fome > 0.66f ? "Estou fraco; algo me puxa para a comida. Chamo isto de fome." :
+        fome > 0.33f ? "A fome cutuca. Sigo de pe, mas penso em comer."               :
+                       "Estou saciado. O que me move agora e outra coisa: espaco.";
+
+    int rivais = 0;
+    for (int dy = -1; dy <= 1; dy++)
+        for (int dx = -1; dx <= 1; dx++) {
+            if (dx == 0 && dy == 0) continue;
+            int nx = b->x + dx, ny = b->y + dy;
+            if (nx < 0 || nx >= LARG || ny < 0 || ny >= ALT) continue;
+            if (ocup[ny][nx] != -1) rivais++;
+        }
+    const char *ver =
+        rivais >= 3 ? "A minha volta, gente demais — disputamos o mesmo chao." :
+        rivais >= 1 ? "Ha outro por perto; sei que ele tambem decide."        :
+                      "Estou sozinho aqui, so eu e a terra.";
+
+    const char *querer =
+        (mdx == 0 && mdy == 0)   ? "Fico onde estou; aqui ainda e o melhor que prevejo." :
+        (mdx == 0 && mdy == -1)  ? "Vou para cima — imagino que la rende mais."          :
+        (mdx == 0 && mdy ==  1)  ? "Vou para baixo — imagino que la rende mais."         :
+        (mdx == -1 && mdy == 0)  ? "Vou para a esquerda — imagino que la rende mais."    :
+        (mdx ==  1 && mdy == 0)  ? "Vou para a direita — imagino que la rende mais."     :
+                                   "Vou para um canto — imagino que la rende mais.";
+
+    n += snprintf(out + n, cap - n, "      \"%s\"\n", sentir);
+    n += snprintf(out + n, cap - n, "      \"%s\"\n", ver);
+    snprintf(out + n, cap - n, "      \"%s\"\n", querer);
+}
+
 /* A "PILULA VERMELHA": a vista em PRIMEIRA PESSOA de um unico bloco. O mundo
  * encolhe para o que ELE percebe (a vizinhanca 3x3) e para o que ELE sente
  * (energia, fome, tracos) e quer (a utilidade imaginada de cada jogada).
@@ -775,9 +817,16 @@ static void desenhar_1p(uint32_t seed, long tick, int f) {
         (mdx == -1 && mdy ==  1) ? "sudoeste"              : "sudeste";
     p += sprintf(buf + p, "\n      decisao: %s  (utilidade %.1f)\n", dir, melhor);
 
-    /* 4) O fechamento — o ponto filosofico inteiro, em duas linhas. */
+    /* 4) O que ele DIZ de si — em primeira pessoa (ponto 2: o bloco que diz "eu"). */
+    char fala[512];
+    auto_relato(b, mdx, mdy, fala, (int)sizeof fala);
+    p += sprintf(buf + p, "\n  O que ele diz de si (em primeira pessoa):\n");
+    p += sprintf(buf + p, "\033[3m%s\033[0m", fala);   /* italico, se o terminal apoiar */
+
+    /* 5) O fechamento — o ponto filosofico, agora com a voz dele dentro. */
     p += sprintf(buf + p,
-        "\n  Isto e TUDO que ele sabe. O resto da Matrix nao existe para ele.\n");
+        "\n  Isto e tudo que ele sabe — e, ainda assim, ele diz \"eu\".\n"
+        "  Voce ouve uma mente, ou um eco?  (FILOSOFIA.md: o teste do zumbi)\n");
     p += sprintf(buf + p,
         "  [p] visao de deus   [, .] trocar de bloco   [espaco] %s   [q] sair\n",
         pausado ? "retomar" : "pausa");

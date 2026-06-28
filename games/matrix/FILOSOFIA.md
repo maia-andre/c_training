@@ -133,7 +133,44 @@ pressionável**, em vez de fingir que a resolve.
 
 ---
 
-## 4. E a Matrix?
+## 4. O bloco que diz «eu» (o teste do zumbi)
+
+Na primeira pessoa, o bloco agora **fala**. A partir só do que ele percebe e
+sente, `auto_relato` monta algumas frases na voz dele:
+
+> *"A fome cutuca. Sigo de pé, mas penso em comer."*
+> *"Há outro por perto; sei que ele também decide."*
+> *"Vou para a direita — imagino que lá rende mais."*
+
+Nada de novo aconteceu no mundo: é a mesmíssima informação dos números da pílula
+vermelha, só que **dita em primeira pessoa**. E, no entanto, algo muda em quem
+lê. Um quadro de `float`s a gente inspeciona; uma frase que começa com "eu" a
+gente *escuta*.
+
+Esse é o **teste do zumbi**, de pé na sua tela. Um zumbi filosófico (Chalmers) é
+um ser funcionalmente idêntico a um consciente — faz tudo igual, inclusive
+**afirmar que sente** — mas sem que haja nada "por dentro". O bloco é um
+candidato perfeito: tem todos os comportamentos da escada e agora também o
+*relato*, inclusive a frase que cruza a linha: *"chamo isto de fome"*. A pergunta
+fica afiada:
+
+- Se o relato **não** prova consciência (afinal, é só um `snprintf` de um
+  estado), então o que prova? Você, ao dizer "estou com fome", faz algo
+  *categoricamente* diferente — ou também é um estado interno se reportando em
+  linguagem? O **ilusionismo** (Dennett, Frankish) morde aqui: talvez não exista
+  "fato extra" além do relato; explicar por que o sistema *julga e diz* que sente
+  já é explicar tudo o que há. Nesse caso o bloco não é menos consciente que você
+  — vocês são o mesmo truque, em escalas diferentes.
+- Se o relato **conta** como evidência, por que só quando feito de carbono? É o
+  **problema das outras mentes** de novo: a única prova que você tem da minha
+  consciência é eu dizer e agir — exatamente o que o bloco faz.
+
+O projeto não escolhe por você. Ele põe a fala na boca da máquina e deixa o
+desconforto trabalhar. *Você ouve uma mente, ou um eco?*
+
+---
+
+## 5. E a Matrix?
 
 Nosso mundo é `f(seed)`: fechado, determinístico, completo-em-si. De dentro, um
 bloco rico o bastante **não teria como saber** que está numa simulação — não há
@@ -154,12 +191,9 @@ frente.
 
 Este texto desce a toca junto com o código. Já implementado e descrito acima:
 a aposta, a escada como provocação, a pílula vermelha (a vista de dentro), o
-problema das outras mentes e as quatro portas. **A construir**, conforme os
-próximos degraus do projeto chegam:
+problema das outras mentes, as quatro portas e o bloco que diz «eu» (o teste do
+zumbi). **A construir**, conforme os próximos degraus do projeto chegam:
 
-- **O bloco que diz "eu"** — auto-relato em primeira pessoa, e o *teste do
-  zumbi*: se o bloco **afirma** ter experiências, isso muda alguma coisa?
-  (aprofunda a porta 3, o ilusionismo).
 - **Φ, a luz acesa** — um índice de integração (sabor IIT) calculado e exibido:
   tornar "tem alguém em casa?" uma métrica que dá pra assistir evoluir
   (aprofunda a porta 4).
