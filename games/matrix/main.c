@@ -8,22 +8,25 @@
  *
  *      0  reatividade        responde a estimulo local
  *      1  memoria            o passado importa (estado interno)
- *   -> 2  valencia           coisas sao boas/ruins (energia: viver x morrer)   <- ESTAMOS AQUI
- *      3  modelo de mundo    preve o proximo instante
+ *      2  valencia           coisas sao boas/ruins (energia: viver x morrer)
+ *   -> 3  modelo de mundo    simula o futuro e decide por ele                  <- ESTAMOS AQUI
  *      4  agencia            age PARA mudar a propria valencia
  *      5  auto-modelo        se representa dentro do mundo
  *      6  aprendizado        a politica muda com a experiencia
  *
- * Este arquivo vai ate o nivel 2: cada bloco-agente tem uma "energia" (sua
- * valencia). Comida no chao = bom; chegar a zero = morte. O bloco enxerga so
- * a vizinhanca 3x3 e caminha na direcao de mais comida. Nada sabe do mundo
- * inteiro; o comportamento global (manadas, escassez, ciclos) EMERGE das
- * regras locais. Voce, ao escolher a "seed", e o relojoeiro: o universo
- * inteiro e f(seed) — deterministico, mas de dentro parece aberto.
+ * Este arquivo vai ate o nivel 3: cada bloco-agente tem uma "energia" (sua
+ * valencia; nivel 2) e, alem disso, um MODELO DO MUNDO (nivel 3) — ele conhece
+ * a regra de rebrota da comida e a disputa com vizinhos, simula alguns ticks
+ * no futuro "de cabeca" para cada celula que poderia ocupar, e decide pelo
+ * futuro imaginado em vez do presente. Comida no chao = bom; chegar a zero =
+ * morte. A percepcao continua estritamente LOCAL (3x3): nada sabe do mundo
+ * inteiro, e ainda assim o comportamento global (manadas, escassez, ciclos)
+ * EMERGE das regras locais. Voce, ao escolher a "seed", e o relojoeiro: o
+ * universo inteiro e f(seed) — deterministico, mas de dentro parece aberto.
  *
  * O codigo segue um pipeline em 4 partes, igual ao do plotter:
  *   PART 1  Mundo procedural   ruido por hash -> campos de comida
- *   PART 2  Blocos / cognicao  percepcao 3x3 e decisao (a "mente" do bloco)
+ *   PART 2  Blocos / cognicao  percepcao 3x3 + modelo de mundo (simula o futuro)
  *   PART 3  Simulacao          o tick: LER -> RESOLVER -> ESCREVER
  *   PART 4  Render + main       desenho ASCII, HUD e o laco principal
  *
@@ -63,6 +66,11 @@
 #define INGESTAO    2.0f    /* quanto de comida um bloco come por tick        */
 #define METABOLISMO 0.35f   /* energia gasta so por existir, a cada tick      */
 #define REPRO       12.0f   /* a partir desta energia o bloco se divide       */
+
+/* Parametros do MODELO DE MUNDO (nivel 3): como o bloco imagina o futuro. */
+#define HORIZONTE   6       /* quantos ticks a frente o bloco simula "de cabeca" */
+#define DESCONTO    0.80f   /* peso do futuro: +1 tick vale 0.8, +2 vale 0.64... */
+#define COMPETICAO  0.5f    /* o quanto cada vizinho rival reduz a colheita prevista */
 
 #define MAX_AG      (LARG * ALT)   /* no maximo um bloco por celula           */
 
@@ -178,26 +186,74 @@ static void semear_blocos(void) {
 }
 
 /* ================================================================== */
-/*  PART 2 — BLOCOS / COGNICAO                                         */
-/*  Toda a "mente" de um bloco no nivel 2: olhe os 8 vizinhos + a sua  */
-/*  propria celula e queira ir para onde houver mais comida. Percepcao */
-/*  estritamente LOCAL — nenhum bloco conhece o mundo inteiro.         */
+/*  PART 2 — BLOCOS / COGNICAO  (nivel 3: modelo de mundo)             */
+/*                                                                     */
+/*  No nivel 2 o bloco era puramente reativo: ia para a celula com     */
+/*  mais comida AGORA. Mas "agora" mente — a celula mais rica pode ser */
+/*  um tesouro de uso unico (capacidade baixa, nao rebrota), enquanto  */
+/*  uma mancha fertil momentaneamente raspada vai voltar a crescer e   */
+/*  render muito mais ao longo do tempo.                               */
+/*                                                                     */
+/*  No nivel 3 o bloco carrega um MODELO DO MUNDO dentro de si: conhece */
+/*  a regra de rebrota (a comida sobe rumo a capacidade) e a disputa   */
+/*  com vizinhos, e simula alguns ticks no futuro "de cabeca" para     */
+/*  cada celula candidata. Decide pelo futuro imaginado, nao pelo      */
+/*  presente. Esse modelo interno e uma APROXIMACAO e pode errar (nao  */
+/*  prevê com exatidao o que os outros farao) — e justamente essa      */
+/*  imperfeicao que abre caminho para os niveis seguintes.             */
 /* ================================================================== */
+
+/* O "imaginar": quanto de comida o bloco PREVE colher se ocupar (cx,cy)
+ * pelos proximos HORIZONTE ticks. Roda, na cabeca do bloco, a propria
+ * dinamica do mundo — comer -> rebrotar -> comer... — descontando o
+ * futuro distante (um ganho agora vale mais que um talvez la na frente). */
+static float prever_valor(int cx, int cy, int self_x, int self_y) {
+    /* Quantos rivais disputam essa celula? Vizinhos ocupados vao comer
+     * dela tambem, entao a colheita prevista e partilhada entre eles. */
+    int rivais = 0;
+    for (int dy = -1; dy <= 1; dy++) {
+        for (int dx = -1; dx <= 1; dx++) {
+            int nx = cx + dx, ny = cy + dy;
+            if (nx < 0 || nx >= LARG || ny < 0 || ny >= ALT) continue;
+            if (nx == self_x && ny == self_y) continue;   /* nao se conta */
+            if (ocup[ny][nx] != -1) rivais++;
+        }
+    }
+    float partilha = 1.0f / (1.0f + COMPETICAO * rivais);
+
+    /* Simulacao mental: parte do estado atual da celula e avanca no tempo,
+     * aplicando a MESMA regra de rebrota que o mundo de verdade usa. */
+    float food = comida[cy][cx];
+    float cap  = capacidade[cy][cx];
+    float valor = 0.0f, peso = 1.0f;
+    for (int h = 0; h < HORIZONTE; h++) {
+        float garfada = menor(food, INGESTAO) * partilha;
+        valor += peso * garfada;
+        food  -= garfada;
+        food  += REGROW * (cap - food);   /* a regra de rebrota, prevista  */
+        peso  *= DESCONTO;
+    }
+    return valor;
+}
+
 static void decidir(int i) {
     Bloco *b = &blocos[i];
 
-    /* Comeca querendo ficar parado, comendo o que tem debaixo de si. */
+    /* Ficar parado e sempre uma opcao valida; comeca avaliando ela. */
     int   melhor_x = b->x, melhor_y = b->y;
-    float melhor   = comida[b->y][b->x];
+    float melhor   = prever_valor(b->x, b->y, b->x, b->y);
 
-    /* Varre a vizinhanca 3x3 (a "visao" do bloco). */
+    /* Considera so as celulas 3x3 ALCANCAVEIS (vazias agora) e compara o
+     * FUTURO IMAGINADO de cada uma, nao a comida do instante. */
     for (int dy = -1; dy <= 1; dy++) {
         for (int dx = -1; dx <= 1; dx++) {
             if (dx == 0 && dy == 0) continue;
             int nx = b->x + dx, ny = b->y + dy;
             if (nx < 0 || nx >= LARG || ny < 0 || ny >= ALT) continue;
-            if (comida[ny][nx] > melhor) {   /* estritamente melhor        */
-                melhor   = comida[ny][nx];
+            if (ocup[ny][nx] != -1) continue;        /* ocupada: inalcancavel */
+            float v = prever_valor(nx, ny, b->x, b->y);
+            if (v > melhor) {
+                melhor = v;
                 melhor_x = nx; melhor_y = ny;
             }
         }
@@ -343,7 +399,7 @@ static void desenhar(uint32_t seed, long tick) {
     int p = 0;
     p += sprintf(buf + p, CLS);
     p += sprintf(buf + p,
-        "  M A T R I X  —  mundo procedural, blocos sencientes (nivel 2)\n");
+        "  M A T R I X  —  mundo procedural, blocos sencientes (nivel 3)\n");
 
     /* borda superior */
     p += sprintf(buf + p, "  +");
