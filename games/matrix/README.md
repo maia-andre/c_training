@@ -5,8 +5,8 @@ de brinquedo onde "blocos" parecem vivos — sem nenhuma física hiper-realista.
 Tudo roda no terminal, em ASCII, e é um único arquivo C (`main.c`) sem
 dependências além da libc.
 
-> **Onde estamos:** níveis 0 → 4 da escada de senciência implementados.
-> Próximos: 5 (auto-modelo) e 6 (aprendizado).
+> **Onde estamos:** escada completa — níveis 0 → 6 implementados. 🪜
+> A população agora **evolui** sozinha (seleção natural de personalidades).
 
 ---
 
@@ -25,8 +25,8 @@ liga/desliga**, é uma posição na escada — e a gente decide até que degrau 
 | 2 | **Valência** — coisas são boas/ruins (energia: viver × morrer) | ✅ |
 | 3 | **Modelo de mundo** — simula o futuro e decide por ele | ✅ |
 | 4 | **Agência** — pondera motivos em conflito p/ regular a valência | ✅ |
-| 5 | **Auto-modelo** — o bloco se representa dentro do mundo | ⬜ próximo |
-| 6 | **Aprendizado** — a política muda com a experiência (e é herdada) | ⬜ |
+| 5 | **Auto-modelo** — o bloco se inclui na simulação; lê a intenção dos vizinhos | ✅ |
+| 6 | **Aprendizado** — os traços são herdados com mutação → seleção natural | ✅ |
 
 ---
 
@@ -83,11 +83,15 @@ Pra conferir a população num tick específico sem assistir à animação:
   - 🟢 verde forte (`>10`) · 🟡 amarelo (`>4`) · 🔴 vermelho (fraco, perto da morte).
 - `. : *` em verde fraco = densidade de comida no solo (recurso).
 - ` ` (vazio) = deserto / comida quase zero.
-- HUD embaixo: `seed`, `tick`, `pop` (população viva), `energia media`, `comida` (total no mundo).
+- HUD embaixo, três linhas: (1) `seed`, `tick`, `pop` (população viva),
+  `energia media`, `comida` (total no mundo); (2) **traços médios** da população
+  (`horizonte`, `desconto`, `urgencia`, `espaco`) — assista-os derivarem ao
+  longo dos ticks: é a evolução do nível 6 acontecendo ao vivo; (3) a legenda.
 
-Mesmo nos níveis atuais já dá pra ver emergir: manadas em torno de manchas
-férteis, colapsos por escassez, ciclos de fartura/fome e (nível 4) blocos
-saciados colonizando a fronteira. Tudo a partir de regras **estritamente
+Dá pra ver emergir: manadas em torno de manchas férteis, colapsos por escassez,
+ciclos de fartura/fome, blocos saciados colonizando a fronteira (nível 4) e —
+deixando rodar uns milhares de ticks — a **personalidade média da população
+mudando** conforme o mundo (nível 6). Tudo a partir de regras **estritamente
 locais** (cada bloco só enxerga sua vizinhança 3×3).
 
 ---
@@ -148,6 +152,39 @@ só essa parte mudou:
   saciado → busca espaço aberto (menos disputa, lugar pra cria). O **mesmo** bloco
   no **mesmo** mundo decide diferente conforme a necessidade. Ele age para regular
   a própria valência — isso é agência, não reação.
+- **Nível 5 (auto-modelo):** até aqui o bloco modelava o mundo mas se esquecia de
+  **si** — avaliava uma célula como se fosse o único a cobiçá-la. Agora o tick tem
+  **duas passagens** (`declarar` → `decidir`): primeiro todos declaram a intenção
+  (a decisão do nível 4, escrita em `intencao_x/y`), depois cada um **reconsidera
+  lendo a intenção dos vizinhos** (`pretendentes_em`) e desvaloriza alvos que
+  outros também miram — só um entra (`resolver`), então cede para a célula livre, a
+  menos que o alvo disputado seja *muito* melhor (peso `ANTECIPACAO`). É um lampejo
+  de **teoria da mente**: decidir contando que os outros também decidem. As duas
+  passagens leem o mesmo estado estável (arrays separados) pra não reintroduzir a
+  "física fantasma" da ordem de varredura.
+
+  *Efeito medido* (A/B com `ANTECIPACAO` 0 vs 0.5, 5 seeds, tick 300): a população
+  sobe ~5–7 % e a energia média **cai** (≈6 → ≈4). Lendo as intenções, os blocos
+  colidem menos e param menos vezes "negados", espalham-se e ocupam mais o mapa —
+  mas a mesma comida finita é dividida entre mais indivíduos. O auto-modelo não
+  engorda os blocos: torna a população mais **densa e enxuta**. Coordenação
+  emergente, sem ninguém combinar nada.
+- **Nível 6 (aprendizado):** até aqui *todos* os blocos partilhavam a mesma
+  política (as constantes globais). Agora `urgencia`, `peso_espaco`, `desconto` e
+  `horizonte` são **campos do `struct Bloco`** — a personalidade de cada um.
+  `semear_blocos` sorteia traços iniciais variados; em `reproduzir` a cria
+  **herda os do pai com uma mutação** (`muta_traco`/`muta_horizonte`, escala
+  `MUTACAO`). Ninguém projeta a melhor estratégia: quem por acaso herda uma
+  política que come mais vive mais e deixa mais filhos, então a média da
+  população **deriva** para o que funciona — **seleção natural**, sem gradiente
+  nem recompensa explícita. As médias dos traços aparecem no HUD pra você ver a
+  evolução ao vivo.
+
+  *Efeito medido* (seed 7, traço médio ao longo de 800 ticks): `horizonte`
+  6.0 → **7.6** e `peso_espaco` 3.2 → **2.7** — planejar mais fundo é favorecido,
+  buscar espaço aberto é podado. E a direção depende do mundo: em 3 seeds o
+  `horizonte` evoluiu para 7.6 / 8.5 / 8.1. O mesmo código, mundos diferentes,
+  **personalidades diferentes** — selecionadas pelo ambiente, não fixadas.
 
 ---
 
@@ -165,55 +202,49 @@ São as "leis da física" deste mundinho. Mude, recompile (`make matrix`), obser
 | `INGESTAO` | 2.0 | quanto come por tick |
 | `METABOLISMO` | 0.35 | energia gasta só por existir |
 | `REPRO` | 12.0 | energia a partir da qual o bloco se divide |
-| `HORIZONTE` | 6 | **(nv3)** quantos ticks o bloco simula no futuro |
-| `DESCONTO` | 0.80 | **(nv3)** peso do futuro distante |
+| `HORIZONTE` | 6 | **(nv3→6)** ticks simulados no futuro — agora **traço**, isto é a média inicial |
+| `DESCONTO` | 0.80 | **(nv3→6)** peso do futuro distante — traço (média inicial) |
 | `COMPETICAO` | 0.5 | **(nv3)** quanto cada rival reduz a colheita prevista |
 | `SACIADO` | 10.0 | **(nv4)** energia em que a fome zera |
-| `URGENCIA` | 2.0 | **(nv4)** quanto a fome amplifica o valor da comida |
-| `PESO_ESPACO` | 3.0 | **(nv4)** força do desejo de espaço aberto |
+| `URGENCIA` | 2.0 | **(nv4→6)** quanto a fome amplifica a comida — traço (média inicial) |
+| `PESO_ESPACO` | 3.0 | **(nv4→6)** força do desejo de espaço aberto — traço (média inicial) |
+| `ANTECIPACAO` | 0.5 | **(nv5)** quanto cada vizinho que mira a mesma célula a desvaloriza (`0` = volta ao nv4) |
+| `MUTACAO` | 0.12 | **(nv6)** magnitude da mutação herdada (`0` = clones perfeitos, sem evolução) |
+| `HORIZONTE_MAX` | 12 | **(nv6)** teto do horizonte que um bloco pode evoluir |
 
 **Experimentos divertidos:**
 - `HORIZONTE 1` → bloco míope (quase nível 2) vs `HORIZONTE 12` → estrategista.
 - `PESO_ESPACO` alto → blocos "agorafílicos" que se espalham feito colônia.
 - `URGENCIA` alta → blocos que entram em pânico e brigam por comida.
 - `REGROW` baixo → mundo avaro, ciclos de fome mais dramáticos.
+- `ANTECIPACAO 0` → desliga o auto-modelo (vira nível 4); alto → blocos muito "educados" que quase nunca disputam a mesma célula.
+- `MUTACAO 0` → desliga a evolução (clones perfeitos, traços médios congelam); alto → deriva rápida e caótica das personalidades.
+- Deixe rodar **milhares de ticks** (`./bin/matrix 7 0 10`) e observe a linha de traços médios no HUD migrar — é a seleção natural ao vivo.
 
 ---
 
-## Roteiro: próximos níveis
+## A escada acabou — e agora?
 
-### Nível 5 — Auto-modelo
-O bloco se **inclui no próprio modelo de mundo**. Hoje, ao simular o futuro em
-`prever_valor`, ele trata a célula como se ninguém (nem ele) fosse mexer nela —
-mas ele mesmo vai comê-la. Um bloco com auto-modelo raciocina sobre o **próprio
-efeito**: "se eu for pra lá, *eu* deprimo aquela célula que os outros enxergam",
-ou "minha presença muda o que os vizinhos vão decidir". Em termos de código:
-o forward-model passa a contar o próprio consumo do bloco e, idealmente, prever
-a reação dos vizinhos à própria jogada (um passo na direção de teoria da mente).
+Os 7 degraus (0→6) estão implementados. Daqui pra frente não há um "nível 7"
+canônico; o espaço se abre em extensões. Algumas ideias, da mais barata à mais
+ambiciosa:
 
-Pontos de partida no código:
-- `prever_valor` já simula o consumo; hoje aplica a `partilha` por rivais mas não
-  distingue "eu" de "eles". Dá pra separar o consumo próprio e modelar que a
-  célula escolhida fica marcada/deprimida pra decisão.
-- Um campo novo no `Bloco` (ex.: intenção declarada) permitiria que um bloco
-  "leia" a intenção provável dos vizinhos ao avaliar uma jogada.
+- **Aprofundar o auto-modelo (nv5):** em `prever_valor`, separar o **próprio**
+  consumo do consumo dos rivais (hoje ambos entram juntos via `partilha`),
+  modelando que a célula escolhida fica deprimida *pelo próprio bloco*.
+- **Variância no HUD:** além da média dos traços, mostrar o desvio — dá pra ver
+  a população *convergir* (todos parecidos) ou *se diversificar* (nichos).
+- **Genealogia / espécies:** colorir o `@` pelo traço dominante (ex.: horizonte)
+  em vez da energia, e assistir "linhagens" pintarem regiões do mapa.
+- **Sexo / recombinação:** cria herda traços de **dois** pais vizinhos saciados,
+  não de um só — abre co-evolução e seleção sexual.
+- **Predadores:** uma segunda espécie que come blocos em vez de comida, criando
+  uma corrida armamentista evolutiva (presa fica mais arisca, predador mais...).
+- **Custo do pensar:** `horizonte` alto consumir mais `METABOLISMO` — aí o
+  planejamento profundo deixa de ser grátis e a evolução tem um *trade-off* real.
 
-### Nível 6 — Aprendizado (o mais divertido de assistir)
-Os pesos da política (`URGENCIA`, `PESO_ESPACO`, `HORIZONTE`, `DESCONTO`…)
-deixam de ser constantes globais e viram **traços individuais** de cada bloco,
-guardados no `struct Bloco`. Na **reprodução** (`reproduzir`), a cria herda os
-traços do pai **com pequena mutação** (usar o `rng` já existente). Quem decide
-melhor sobrevive e se reproduz mais → **seleção natural de personalidades**,
-sem nenhum gradiente, só sobrevivência diferencial. Dá pra colorir/visualizar
-os traços médios no HUD e ver a população "evoluir" estratégias ao longo dos
-ticks.
-
-Pontos de partida no código:
-- Mover os parâmetros de `#define` para campos do `Bloco`; `decidir`/`utilidade`
-  passam a ler `b->urgencia` etc. em vez das constantes.
-- Em `reproduzir`, copiar os traços do pai e somar um ruído pequeno do `rng`.
-- `semear_blocos` sorteia traços iniciais com alguma variação.
-- HUD: mostrar média/variância de um traço pra ver a evolução acontecendo.
+> Cada uma mexe só na PART 2 (cognição) ou na fase de reprodução — o resto do
+> pipeline (mundo, render, tick) segue de pé.
 
 ---
 

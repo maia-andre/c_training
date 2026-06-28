@@ -10,26 +10,29 @@
  *      1  memoria            o passado importa (estado interno)
  *      2  valencia           coisas sao boas/ruins (energia: viver x morrer)
  *      3  modelo de mundo    simula o futuro e decide por ele
- *   -> 4  agencia            pondera motivos em conflito p/ regular a valencia  <- ESTAMOS AQUI
- *      5  auto-modelo        se representa dentro do mundo
- *      6  aprendizado        a politica muda com a experiencia
+ *      4  agencia            pondera motivos em conflito p/ regular a valencia
+ *      5  auto-modelo        se inclui na simulacao e le a intencao dos vizinhos
+ *   -> 6  aprendizado        os tracos sao herdados com mutacao -> selecao natural  <- ESTAMOS AQUI
  *
- * Este arquivo vai ate o nivel 4: cada bloco-agente tem uma "energia" (sua
- * valencia; nivel 2), um MODELO DO MUNDO que simula o futuro (nivel 3) e
- * AGENCIA (nivel 4) — em vez de so maximizar comida, ele pondera dois motivos
- * em conflito (matar a fome x buscar espaco aberto) cujos pesos mudam com o
- * proprio estado interno: faminto, forrageia obstinado; saciado, se espalha
- * pela fronteira para ter menos disputa e lugar onde se reproduzir. O mesmo
- * bloco, no mesmo mundo, decide diferente conforme a propria necessidade — ele
- * age para regular a propria valencia. Comida no chao = bom; chegar a zero =
- * morte. A percepcao continua estritamente LOCAL (3x3): nada sabe do mundo
+ * Este arquivo vai ate o nivel 6: cada bloco-agente tem uma "energia" (sua
+ * valencia; nivel 2), um MODELO DO MUNDO que simula o futuro (nivel 3),
+ * AGENCIA (nivel 4) — pondera motivos em conflito cujos pesos mudam com o
+ * proprio estado interno — um AUTO-MODELO (nivel 5): se inclui na cena, com o
+ * tick em DUAS passagens (todos DECLARAM a intencao, depois cada um RECONSIDERA
+ * lendo a dos vizinhos e cede a celula disputada) — e, agora, APRENDIZADO
+ * (nivel 6): os pesos da politica (urgencia, espaco, horizonte, desconto)
+ * deixam de ser constantes e viram TRACOS herdados pela cria COM MUTACAO. Quem
+ * decide melhor vive e se reproduz mais, entao a media da populacao EVOLUI
+ * sozinha — selecao natural de personalidades, sem ninguem projetar nada.
+ * Comida no chao = bom; chegar a zero = morte.
+ * A percepcao continua estritamente LOCAL (3x3): nada sabe do mundo
  * inteiro, e ainda assim o comportamento global (manadas, escassez, ciclos)
  * EMERGE das regras locais. Voce, ao escolher a "seed", e o relojoeiro: o
  * universo inteiro e f(seed) — deterministico, mas de dentro parece aberto.
  *
  * O codigo segue um pipeline em 4 partes, igual ao do plotter:
  *   PART 1  Mundo procedural   ruido por hash -> campos de comida
- *   PART 2  Blocos / cognicao  percepcao 3x3 + modelo de mundo + agencia (motivos)
+ *   PART 2  Blocos / cognicao  percepcao + modelo + agencia + auto-modelo + aprendizado
  *   PART 3  Simulacao          o tick: LER -> RESOLVER -> ESCREVER
  *   PART 4  Render + main       desenho ASCII, HUD e o laco principal
  *
@@ -70,15 +73,27 @@
 #define METABOLISMO 0.35f   /* energia gasta so por existir, a cada tick      */
 #define REPRO       12.0f   /* a partir desta energia o bloco se divide       */
 
-/* Parametros do MODELO DE MUNDO (nivel 3): como o bloco imagina o futuro. */
-#define HORIZONTE   6       /* quantos ticks a frente o bloco simula "de cabeca" */
-#define DESCONTO    0.80f   /* peso do futuro: +1 tick vale 0.8, +2 vale 0.64... */
+/* Parametros do MODELO DE MUNDO (nivel 3): como o bloco imagina o futuro.
+ * HORIZONTE e DESCONTO viram TRACOS individuais no nivel 6 — aqui ficam os
+ * valores MEDIOS de partida (semear_blocos sorteia em torno deles). */
+#define HORIZONTE   6       /* media inicial: ticks que o bloco simula "de cabeca" */
+#define DESCONTO    0.80f   /* media inicial: peso do futuro (+1 tick vale 0.8...)  */
 #define COMPETICAO  0.5f    /* o quanto cada vizinho rival reduz a colheita prevista */
 
-/* Parametros da AGENCIA (nivel 4): como o bloco pondera motivos em conflito. */
+/* Parametros da AGENCIA (nivel 4): como o bloco pondera motivos em conflito.
+ * URGENCIA e PESO_ESPACO tambem viram tracos (nivel 6); aqui, a media inicial. */
 #define SACIADO     10.0f   /* energia acima da qual a fome zera                  */
-#define URGENCIA    2.0f    /* o quanto a fome amplifica o valor da comida        */
-#define PESO_ESPACO 3.0f    /* peso do desejo de espaco aberto quando saciado     */
+#define URGENCIA    2.0f    /* media inicial: a fome amplifica o valor da comida  */
+#define PESO_ESPACO 3.0f    /* media inicial: peso do desejo de espaco aberto     */
+
+/* Parametro do AUTO-MODELO (nivel 5): o bloco se ve entre os concorrentes. */
+#define ANTECIPACAO 0.5f    /* quanto cada vizinho que MIRA a mesma celula a desvaloriza */
+
+/* Parametros do APRENDIZADO (nivel 6): os 4 tracos acima sao herdados COM
+ * MUTACAO a cada nascimento; a selecao natural (quem sobrevive e se reproduz
+ * mais) faz a media da populacao evoluir sozinha — sem gradiente, so vida. */
+#define MUTACAO       0.12f /* magnitude da mutacao herdada (0 = clones perfeitos) */
+#define HORIZONTE_MAX 12    /* teto do horizonte de planejamento de um bloco       */
 
 #define MAX_AG      (LARG * ALT)   /* no maximo um bloco por celula           */
 
@@ -89,11 +104,18 @@ static float comida[ALT][LARG];      /* energia do solo — o "recurso"        *
 static float capacidade[ALT][LARG];  /* teto de comida da celula (do ruido)  */
 static int   ocup[ALT][LARG];        /* indice do bloco ali, ou -1 se vazio  */
 
-/* Um "bloco" senciente. No nivel 2 sua mente cabe num numero: a energia. */
+/* Um "bloco" senciente. No nivel 2 sua mente cabia num numero (a energia);
+ * do nivel 6 em diante ele tambem carrega uma "personalidade" herdavel. */
 typedef struct {
     int   x, y;       /* posicao no mundo                         */
     float energia;    /* a VALENCIA: cair a zero = morte           */
     int   vivo;       /* 0 = slot livre / bloco morto             */
+    /* (nivel 6) TRACOS herdaveis — a politica de decisao deste bloco. A cria
+     * os herda do pai com mutacao; a selecao natural faz a media evoluir. */
+    float urgencia;     /* peso da fome           (era #define URGENCIA)    */
+    float peso_espaco;  /* desejo de espaco livre (era #define PESO_ESPACO) */
+    float desconto;     /* desconto do futuro     (era #define DESCONTO)    */
+    int   horizonte;    /* profundidade do plano  (era #define HORIZONTE)   */
 } Bloco;
 
 static Bloco blocos[MAX_AG];
@@ -105,6 +127,15 @@ static int   n_blocos;            /* slots em uso (com buracos de mortos)    */
  * o laco o visita antes dos vizinhos). */
 static int alvo_x[MAX_AG];
 static int alvo_y[MAX_AG];
+
+/* (nivel 5) Intencao DECLARADA na 1a passagem do tick: para onde cada bloco
+ * pretende ir antes de saber o que os vizinhos querem. Na 2a passagem cada um
+ * le estas intencoes — que ficam num array separado de alvo_x/y justamente
+ * para a 2a passagem nunca ler uma decisao ja atualizada de um vizinho de
+ * indice menor (senao a ordem de varredura voltaria a ser "fisica fantasma"). */
+static int intencao_x[MAX_AG];
+static int intencao_y[MAX_AG];
+
 static int reivindicado[ALT][LARG];  /* quem ganhou o direito de entrar aqui */
 
 /* Gerador pseudo-aleatorio do proprio universo (LCG). Semeado pela seed,
@@ -188,13 +219,20 @@ static void semear_blocos(void) {
 
         Bloco *b = &blocos[n_blocos];
         b->x = x; b->y = y; b->energia = ENERGIA0; b->vivo = 1;
+        /* (nivel 6) tracos iniciais sorteados em torno das medias, com folga,
+         * pra populacao comecar DIVERSA — sem variedade nao ha o que selecionar. */
+        b->urgencia    = URGENCIA    * (0.5f + rng01());          /* ~0.5x..1.5x */
+        b->peso_espaco = PESO_ESPACO * (0.5f + rng01());          /* ~0.5x..1.5x */
+        b->desconto    = DESCONTO + (rng01() - 0.5f) * 0.2f;      /* +-0.1       */
+        b->horizonte   = 1 + (int)(rng01() * HORIZONTE_MAX);      /* 1..MAX      */
+        if (b->horizonte > HORIZONTE_MAX) b->horizonte = HORIZONTE_MAX;
         ocup[y][x] = n_blocos;
         n_blocos++;
     }
 }
 
 /* ================================================================== */
-/*  PART 2 — BLOCOS / COGNICAO  (niveis 3 e 4)                         */
+/*  PART 2 — BLOCOS / COGNICAO  (niveis 3 a 6)                         */
 /*                                                                     */
 /*  Nivel 3 — MODELO DE MUNDO: o bloco nao olha so a comida de agora;  */
 /*  carrega a dinamica do mundo dentro de si e simula HORIZONTE ticks  */
@@ -211,6 +249,26 @@ static void semear_blocos(void) {
 /*  mundo decide diferente conforme sua necessidade: faminto forrageia */
 /*  obstinado, saciado se espalha pela fronteira. Ele age para regular */
 /*  a propria valencia — isso e agencia, nao mera reacao.              */
+/*                                                                     */
+/*  Nivel 5 — AUTO-MODELO: ate aqui o bloco modelava o mundo mas se    */
+/*  esquecia de si — avaliava uma celula como se fosse o unico a       */
+/*  cobica-la. Agora se inclui na cena: o tick tem DUAS passagens.     */
+/*  1) todos DECLARAM a intencao (a decisao do nivel 4). 2) cada um    */
+/*  RECONSIDERA lendo a intencao dos vizinhos: se varios miram a mesma */
+/*  celula, so um entra (resolver), entao desvaloriza alvos disputados */
+/*  e cede para a livre. So insiste no alvo cobicado se ele for MUITO  */
+/*  melhor. E um lampejo de teoria da mente — decidir contando que os  */
+/*  outros tambem decidem.                                             */
+/*                                                                     */
+/*  Nivel 6 — APRENDIZADO: ate aqui todos os blocos partilhavam a      */
+/*  MESMA politica (constantes globais URGENCIA, HORIZONTE...). Agora  */
+/*  esses pesos sao TRACOS de cada bloco, no struct, e a cria os herda */
+/*  do pai com uma mutacaozinha (reproduzir). Ninguem projeta a melhor */
+/*  estrategia: quem por acaso herda uma politica que come mais vive   */
+/*  mais e deixa mais filhos, entao a media da populacao DERIVA para o */
+/*  que funciona naquele mundo. Evolucao por selecao natural — sem     */
+/*  gradiente, sem recompensa explicita, so sobrevivencia diferencial. */
+/*  Veja os "tracos medios" no HUD mudarem ao longo dos ticks.         */
 /* ================================================================== */
 
 /* Conta vizinhos ocupados de (cx,cy), ignorando o proprio bloco. Serve a
@@ -229,77 +287,115 @@ static int rivais_em(int cx, int cy, int self_x, int self_y) {
     return rivais;
 }
 
-/* (nivel 3) Quanto de comida o bloco PREVE colher se ocupar (cx,cy) pelos
- * proximos HORIZONTE ticks. Roda, na cabeca do bloco, a propria dinamica
- * do mundo — comer -> rebrotar -> comer... — descontando o futuro distante
- * e partilhando a colheita com os rivais que disputam a celula. */
-static float prever_valor(int cx, int cy, int self_x, int self_y) {
-    int rivais = rivais_em(cx, cy, self_x, self_y);
+/* (nivel 3, com tracos do nivel 6) Quanto de comida o bloco PREVE colher se
+ * ocupar (cx,cy) pelos proximos b->horizonte ticks. Roda, na cabeca do bloco,
+ * a propria dinamica do mundo — comer -> rebrotar -> comer... — descontando o
+ * futuro pelo proprio b->desconto e partilhando a colheita com os rivais.
+ * Quanto enxerga adiante (horizonte) e quanto liga pro futuro (desconto) sao
+ * tracos individuais: cada bloco "imagina" o futuro de um jeito. */
+static float prever_valor(int cx, int cy, const Bloco *b) {
+    int rivais = rivais_em(cx, cy, b->x, b->y);
     float partilha = 1.0f / (1.0f + COMPETICAO * rivais);
 
     float food = comida[cy][cx];
     float cap  = capacidade[cy][cx];
     float valor = 0.0f, peso = 1.0f;
-    for (int h = 0; h < HORIZONTE; h++) {
+    for (int h = 0; h < b->horizonte; h++) {
         float garfada = menor(food, INGESTAO) * partilha;
         valor += peso * garfada;
         food  -= garfada;
         food  += REGROW * (cap - food);   /* a regra de rebrota, prevista  */
-        peso  *= DESCONTO;
+        peso  *= b->desconto;
     }
     return valor;
 }
 
-/* (nivel 4) Utilidade de uma celula para ESTE bloco agora: combina os dois
- * motivos com pesos que dependem da fome atual. E aqui que mora a agencia. */
+/* (nivel 4, com tracos do nivel 6) Utilidade de uma celula para ESTE bloco
+ * agora: combina os dois motivos com pesos que dependem da fome E dos tracos
+ * herdados (b->urgencia, b->peso_espaco). E aqui que mora a agencia — e e
+ * exatamente aqui que a personalidade herdada muda quem o bloco e. */
 static float utilidade(int cx, int cy, Bloco *b) {
     /* fome em 0..1: 1 = a beira da morte, 0 = saciado. */
     float fome = 1.0f - b->energia / SACIADO;
     if (fome < 0.0f) fome = 0.0f;
     if (fome > 1.0f) fome = 1.0f;
 
-    float comida_prev = prever_valor(cx, cy, b->x, b->y);
+    float comida_prev = prever_valor(cx, cy, b);
     float espaco = (8 - rivais_em(cx, cy, b->x, b->y)) / 8.0f;   /* 0..1 */
 
     /* Faminto: a comida vale ainda mais (urgencia escala com a fome).
      * Saciado: a comida pesa pouco e entra o desejo de espaco aberto. */
-    return comida_prev * (1.0f + URGENCIA * fome)
-         + PESO_ESPACO * espaco * (1.0f - fome);
+    return comida_prev * (1.0f + b->urgencia * fome)
+         + b->peso_espaco * espaco * (1.0f - fome);
 }
 
-static void decidir(int i) {
-    Bloco *b = &blocos[i];
+/* (nivel 5) Quantos OUTROS blocos declararam que querem entrar em (cx,cy)?
+ * So vizinhos imediatos de (cx,cy) podem mira-la (ninguem anda mais que um
+ * passo), entao basta varrer o 3x3 ao redor e ler a intencao de cada um. E o
+ * bloco "lendo a mente" dos vizinhos a partir das intencoes ja declaradas. */
+static int pretendentes_em(int cx, int cy, int self_i) {
+    int n = 0;
+    for (int dy = -1; dy <= 1; dy++) {
+        for (int dx = -1; dx <= 1; dx++) {
+            int nx = cx + dx, ny = cy + dy;
+            if (nx < 0 || nx >= LARG || ny < 0 || ny >= ALT) continue;
+            int j = ocup[ny][nx];
+            if (j == -1 || j == self_i) continue;       /* vazio ou eu mesmo  */
+            if (intencao_x[j] == cx && intencao_y[j] == cy) n++;
+        }
+    }
+    return n;
+}
 
-    /* Ficar parado e sempre uma opcao valida; comeca avaliando ela. */
-    int   melhor_x = b->x, melhor_y = b->y;
+/* Varre as celulas 3x3 alcancaveis (mais ficar parado) e devolve a de maior
+ * pontuacao. Pontuar = utilidade do nivel 4; se 'antecipar', o nivel 5 ainda
+ * desvaloriza alvos que os vizinhos tambem declararam querer (so um entra). */
+static void melhor_celula(Bloco *b, int i, int antecipar, int *bx, int *by) {
+    int   melhor_x = b->x, melhor_y = b->y;   /* ficar parado e sempre valido */
     float melhor   = utilidade(b->x, b->y, b);
 
-    /* Considera so as celulas 3x3 ALCANCAVEIS (vazias agora) e compara a
-     * UTILIDADE de cada uma — comida prevista e espaco, pesados pela fome. */
     for (int dy = -1; dy <= 1; dy++) {
         for (int dx = -1; dx <= 1; dx++) {
             if (dx == 0 && dy == 0) continue;
             int nx = b->x + dx, ny = b->y + dy;
             if (nx < 0 || nx >= LARG || ny < 0 || ny >= ALT) continue;
             if (ocup[ny][nx] != -1) continue;        /* ocupada: inalcancavel */
+
             float u = utilidade(nx, ny, b);
+            if (antecipar) {                         /* nivel 5: prever a disputa */
+                int pret = pretendentes_em(nx, ny, i);
+                u /= 1.0f + ANTECIPACAO * pret;
+            }
             if (u > melhor) {
                 melhor = u;
                 melhor_x = nx; melhor_y = ny;
             }
         }
     }
-    alvo_x[i] = melhor_x;
-    alvo_y[i] = melhor_y;
+    *bx = melhor_x; *by = melhor_y;
+}
+
+/* 1a passagem (nivel 5): cada bloco DECLARA, sem olhar os vizinhos, para onde
+ * pretende ir — e exatamente a decisao do nivel 4. */
+static void declarar(int i) {
+    melhor_celula(&blocos[i], i, 0, &intencao_x[i], &intencao_y[i]);
+}
+
+/* 2a passagem (nivel 5): cada bloco RECONSIDERA, agora antecipando a disputa
+ * lida nas intencoes dos vizinhos, e fixa o alvo final do tick. */
+static void decidir(int i) {
+    melhor_celula(&blocos[i], i, 1, &alvo_x[i], &alvo_y[i]);
 }
 
 /* ================================================================== */
 /*  PART 3 — SIMULACAO (o tick)                                        */
 /*  Um tick tem fases bem separadas para ser deterministico e justo:   */
-/*    A. DECIDIR     todos leem a vizinhanca e escolhem um alvo         */
+/*    A. DECIDIR     2 passagens (nv5): declarar a intencao, depois     */
+/*                   reconsiderar lendo a intencao dos vizinhos          */
 /*    B. RESOLVER    conflitos: dois blocos, uma celula -> so um entra  */
 /*    C. APLICAR     move quem ganhou, depois come e paga metabolismo   */
-/*    D. REPRODUZIR  blocos saciados se dividem                         */
+/*    D. REPRODUZIR  blocos saciados se dividem; a cria herda os        */
+/*                   tracos do pai com mutacao (nivel 6)                 */
 /*    E. MUNDO       a comida rebrota em direcao a capacidade           */
 /* ================================================================== */
 
@@ -358,9 +454,27 @@ static void aplicar_e_comer(void) {
     }
 }
 
-/* D. Reproducao: um bloco saciado se divide num vizinho vazio, partilhando
- * a energia. E uma "lei do mundo", nao cognicao — mas e o que faz a
- * populacao oscilar e a tela ganhar vida. */
+/* (nivel 6) Mutacao de um traco continuo: um empurraozinho uniforme +-passo,
+ * mantido numa faixa saudavel. passo = 0 -> a cria e um clone exato do pai. */
+static float muta_traco(float v, float passo, float lo, float hi) {
+    v += (rng01() * 2.0f - 1.0f) * passo;
+    if (v < lo) v = lo;
+    if (v > hi) v = hi;
+    return v;
+}
+
+/* (nivel 6) Mutacao do horizonte (inteiro): de vez em quando, um passo de +-1. */
+static int muta_horizonte(int h) {
+    if (rng01() < 2.0f * MUTACAO) h += (rng01() < 0.5f) ? -1 : 1;
+    if (h < 1) h = 1;
+    if (h > HORIZONTE_MAX) h = HORIZONTE_MAX;
+    return h;
+}
+
+/* D. Reproducao: um bloco saciado se divide num vizinho vazio, partilhando a
+ * energia. No nivel 6 isto deixa de ser "so uma lei do mundo": e o canal da
+ * HERANCA — a cria recebe os tracos do pai com mutacao, e a selecao natural
+ * que daqui emerge e o que faz a populacao APRENDER ao longo das geracoes. */
 static void reproduzir(void) {
     int total = n_blocos;   /* fixa o limite ANTES de adicionar filhotes    */
     for (int i = 0; i < total; i++) {
@@ -385,10 +499,18 @@ static void reproduzir(void) {
         if (e >= nlivres) e = nlivres - 1;
 
         int j = n_blocos++;                  /* novo slot                   */
-        blocos[i].energia *= 0.5f;           /* a energia se divide         */
-        blocos[j].x = lx[e]; blocos[j].y = ly[e];
-        blocos[j].energia = blocos[i].energia;
-        blocos[j].vivo = 1;
+        Bloco *pai = &blocos[i], *cria = &blocos[j];
+        pai->energia *= 0.5f;                /* a energia se divide         */
+        cria->x = lx[e]; cria->y = ly[e];
+        cria->energia = pai->energia;
+        cria->vivo = 1;
+        /* (nivel 6) a cria HERDA os tracos do pai, cada um com uma mutacaozinha.
+         * Quem herdou uma politica melhor come mais, vive mais e tem mais
+         * filhos — e a media da populacao deriva para estrategias vencedoras. */
+        cria->urgencia    = muta_traco(pai->urgencia,    1.5f * MUTACAO, 0.0f, 6.0f);
+        cria->peso_espaco = muta_traco(pai->peso_espaco, 2.0f * MUTACAO, 0.0f, 8.0f);
+        cria->desconto    = muta_traco(pai->desconto,    0.4f * MUTACAO, 0.30f, 0.98f);
+        cria->horizonte   = muta_horizonte(pai->horizonte);
         ocup[ly[e]][lx[e]] = j;
     }
 }
@@ -430,7 +552,7 @@ static void desenhar(uint32_t seed, long tick) {
     int p = 0;
     p += sprintf(buf + p, CLS);
     p += sprintf(buf + p,
-        "  M A T R I X  —  mundo procedural, blocos sencientes (nivel 4)\n");
+        "  M A T R I X  —  mundo procedural, blocos sencientes (nivel 6)\n");
 
     /* borda superior */
     p += sprintf(buf + p, "  +");
@@ -467,12 +589,23 @@ static void desenhar(uint32_t seed, long tick) {
     /* HUD */
     int pop = populacao();
     float soma_e = 0.0f, soma_c = 0.0f;
-    for (int i = 0; i < n_blocos; i++) if (blocos[i].vivo) soma_e += blocos[i].energia;
+    /* (nivel 6) medias dos tracos vivos: e aqui que se VE a evolucao acontecer. */
+    float s_urg = 0.0f, s_esp = 0.0f, s_desc = 0.0f, s_hor = 0.0f;
+    for (int i = 0; i < n_blocos; i++) if (blocos[i].vivo) {
+        soma_e += blocos[i].energia;
+        s_urg  += blocos[i].urgencia;     s_esp += blocos[i].peso_espaco;
+        s_desc += blocos[i].desconto;     s_hor += blocos[i].horizonte;
+    }
     for (int y = 0; y < ALT; y++) for (int x = 0; x < LARG; x++) soma_c += comida[y][x];
+    float inv = pop ? 1.0f / pop : 0.0f;
 
     p += sprintf(buf + p,
         "  seed %-10u  tick %-6ld  pop %-4d  energia media %5.1f  comida %6.0f\n",
-        seed, tick, pop, pop ? soma_e / pop : 0.0f, soma_c);
+        seed, tick, pop, soma_e * inv, soma_c);
+    p += sprintf(buf + p,
+        "  tracos medios (evoluindo):  horizonte %4.1f  desconto %4.2f"
+        "  urgencia %4.1f  espaco %4.1f\n",
+        s_hor * inv, s_desc * inv, s_urg * inv, s_esp * inv);
     p += sprintf(buf + p,
         "  legenda: \033[92m@\033[0m forte  \033[93m@\033[0m ok  \033[91m@\033[0m fraco"
         "   \033[2;32m. : *\033[0m comida    (Ctrl+C para sair)\n");
@@ -506,7 +639,11 @@ int main(int argc, char **argv) {
             break;
         }
 
-        /* O tick, na ordem: ler -> resolver -> escrever -> reproduzir -> mundo. */
+        /* O tick: declarar -> reconsiderar -> resolver -> escrever -> reproduzir
+         * -> mundo. As duas passagens de decisao (nivel 5) leem o mesmo estado
+         * estavel: a 1a preenche as intencoes, a 2a as consulta. */
+        for (int i = 0; i < n_blocos; i++)
+            if (blocos[i].vivo) declarar(i);
         for (int i = 0; i < n_blocos; i++)
             if (blocos[i].vivo) decidir(i);
         resolver();
