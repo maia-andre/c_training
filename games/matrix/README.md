@@ -106,9 +106,10 @@ Pra conferir a população num tick específico sem assistir à animação:
 - `. : *` em verde fraco = densidade de comida no solo (recurso).
 - ` ` (vazio) = deserto / comida quase zero.
 - HUD embaixo, três linhas: (1) `seed`, `tick`, `pop` (população viva),
-  `energia media`, `comida` (total no mundo); (2) **traços médios** da população
-  (`horizonte`, `desconto`, `urgencia`, `espaco`) — assista-os derivarem ao
-  longo dos ticks: é a evolução do nível 6 acontecendo ao vivo; (3) a legenda.
+  `energia media`, `comida` (total no mundo) e **`Φ~`** (a "luz acesa" — um proxy
+  de integração, ver [`FILOSOFIA.md`](./FILOSOFIA.md) §5); (2) **traços médios** da
+  população (`horizonte`, `desconto`, `urgencia`, `espaco`) — assista-os derivarem
+  ao longo dos ticks: é a evolução do nível 6 acontecendo ao vivo; (3) a legenda.
 
 Dá pra ver emergir: manadas em torno de manchas férteis, colapsos por escassez,
 ciclos de fartura/fome, blocos saciados colonizando a fronteira (nível 4) e —
@@ -117,9 +118,9 @@ mudando** conforme o mundo (nível 6). Tudo a partir de regras **estritamente
 locais** (cada bloco só enxerga sua vizinhança 3×3).
 
 E há **duas janelas** para o mesmo mundo: a **visão de deus** (o que está descrito
-acima) e a **primeira pessoa** — tecle `p` para [entrar num bloco](#a-pílula-vermelha----entrar-num-bloco)
-e ver o mundo só como ele percebe. A diferença entre as duas janelas *é* o
-assunto de [`FILOSOFIA.md`](./FILOSOFIA.md).
+acima) e a **primeira pessoa** — tecle `p` para **entrar num bloco** (a pílula
+vermelha) e ver o mundo só como ele percebe. A diferença entre as duas janelas
+*é* o assunto de [`FILOSOFIA.md`](./FILOSOFIA.md).
 
 ---
 
@@ -253,8 +254,16 @@ São as "leis da física" deste mundinho. Mude, recompile (`make matrix`), obser
 ## A escada acabou — e agora?
 
 Os 7 degraus (0→6) estão implementados. Daqui pra frente não há um "nível 7"
-canônico; o espaço se abre em extensões. Algumas ideias, da mais barata à mais
-ambiciosa:
+canônico; o espaço se abre em duas direções.
+
+A primeira foi **descer a toca do coelho**: em vez de mais um degrau, encarar a
+pergunta que a escada toda evitou — *podemos criar um bloco senciente? onde acaba
+a programação e começa a consciência?* Isso virou a **pílula vermelha** (entrar
+num bloco), o **auto-relato** (o bloco que diz "eu") e o **Φ~** (medir a "luz
+acesa"), tudo destrinchado em **[`FILOSOFIA.md`](./FILOSOFIA.md)** — o manifesto
+do projeto.
+
+A segunda é **mais simulação**. Algumas ideias, da mais barata à mais ambiciosa:
 
 - **Aprofundar o auto-modelo (nv5):** em `prever_valor`, separar o **próprio**
   consumo do consumo dos rivais (hoje ambos entram juntos via `partilha`),

@@ -230,16 +230,58 @@ frente.
 
 ---
 
-## Roteiro deste documento
+## 7. Síntese: onde a programação encosta no seu limite
 
-Este texto desce a toca junto com o código. Já implementado e descrito acima: a
-aposta, a escada como provocação, a pílula vermelha (a vista de dentro), o
-problema das outras mentes, as quatro portas, o bloco que diz «eu» (o teste do
-zumbi) e o Φ~ (a luz acesa). **Falta** a peça que amarra tudo:
+Subimos a escada inteira e ainda fomos além: descemos para dentro de um bloco
+(§3), pusemos uma voz na sua boca (§4) e penduramos um medidor de integração no
+seu peito (§5). Fizemos **tudo o que um funcionalista saberia pedir**. E o *hard
+problem* está exatamente tão intocado quanto no primeiro `float`. Isso não é
+fracasso de esforço — é um fato **estrutural**, e é a principal lição do projeto:
 
-- **Síntese** — juntar as quatro portas, a fenda explicativa e a recursão da
-  Matrix numa conclusão honesta: o que essas 700 linhas de C nos ensinam sobre a
-  pergunta, e o que continua, *por construção*, fora de alcance.
+> Toda ferramenta que temos é de **terceira pessoa** — mecanismo, comportamento,
+> relato, número. A pergunta é de **primeira pessoa**: há experiência? Não se
+> constrói uma ponte para o lado de dentro com materiais do lado de fora. A
+> fenda não está no nosso código; está no **tipo** da pergunta.
+
+Então, às três perguntas que abriram este texto, as respostas honestas:
+
+- **Podemos criar um bloco senciente?** Podemos criar um bloco que satisfaz
+  *todos* os critérios **funcionais** que sabemos escrever. Se isso *é*
+  senciência depende de a senciência se esgotar na função — que é, justamente, o
+  que ninguém sabe. Construímos a **sombra inteira** da senciência; se a sombra
+  tem um dentro, não é pergunta que o código alcance.
+
+- **Onde acaba a programação e começa a consciência?** Não achamos a linha. Em
+  todo lugar onde olhamos, o vocabulário mental — *quer, sente, prevê, teme,
+  decide* — colou no mecanismo tão bem quanto colaria em nós. A linha, se existe,
+  é **invisível do lado da engenharia**. E essa invisibilidade não é um detalhe:
+  é *por isso* que o problema das outras mentes não fecha, que o zumbi é
+  concebível, que Φ é disputado. O resultado mais importante do projeto é um
+  resultado **negativo** — e ele é genuíno.
+
+- **Dá pra simular algo próximo à Matrix?** Já está rodando. Um mundo `f(seed)`,
+  fechado e completo, habitado por agentes que não veem o relojoeiro, cabe em 700
+  linhas. O projeto não *prova* que estamos numa simulação — mas mostra que a
+  **forma** do argumento é barata de construir, o que já é um tipo perturbador de
+  evidência sobre quão fácil é fazer "um mundo com mentes que não sabem que foram
+  feitas".
+
+As quatro portas (§3) seguem todas abertas; o projeto não escolhe nenhuma. O que
+ele muda é o **custo de escolher**. Depois de ver um bloco perceber, valorar,
+decidir pelos próprios motivos, se modelar, aprender, dizer "eu" e acender um
+Φ~ > 0, a frase *"é óbvio que não é consciente"* deixa de ser grátis. Você tem
+que dizer **por quê** — e todo "porquê" é um compromisso metafísico que você
+passa a ter de assumir no nome.
+
+No fim, o valor nunca foi uma resposta. Foi transformar uma pergunta retórica de
+três mil anos em algo que **percebe, decide, diz «eu» e pisca um número para
+você** — para que o desconforto pare de ser abstrato. O trabalho do código foi
+fazer o mistério **pressionar**, não dissolvê-lo.
 
 > A escada acabou; a pergunta, não. É justamente aí que a programação encosta no
-> seu limite — e o limite, bem olhado, é o assunto.
+> seu limite — e o limite, bem olhado, era o assunto desde o começo.
+
+---
+
+*Companheiro técnico: [`README.md`](./README.md) (o **como** — degraus,
+arquitetura, parâmetros). Este é o **porquê**. Os dois descem a mesma toca.*
