@@ -43,10 +43,17 @@
  *
  * Uso:
  *   make matrix
- *   ./bin/matrix [seed] [ticks] [delay_ms]
+ *   ./bin/matrix [seed] [ticks] [delay_ms] [foco]
  *      seed     semente do universo   (default 20260628)
  *      ticks    quantos ticks rodar   (default 0 = infinito, Ctrl+C para sair)
  *      delay_ms pausa entre frames    (default 80)
+ *      foco     entra ja em 1a pessoa nesse bloco (default -1 = visao de deus)
+ *
+ * Num terminal de verdade, durante a animacao (a "pilula vermelha"):
+ *   p / TAB   alterna visao de DEUS  <->  PRIMEIRA PESSOA (entrar num bloco)
+ *   , / .     em 1a pessoa, troca o bloco habitado
+ *   espaco    pausa/retoma o tempo
+ *   q         sai
  */
 
 #define _POSIX_C_SOURCE 199309L  /* libera nanosleep/signal com -std=c11 */
@@ -56,6 +63,8 @@
 #include <stdint.h>
 #include <signal.h>
 #include <time.h>
+#include <unistd.h>    /* isatty, read, STDIN/STDOUT_FILENO (teclado nao-bloqueante) */
+#include <termios.h>   /* modo cru do terminal: ler tecla a tecla, sem Enter nem eco */
 
 /* ------------------------------------------------------------------ */
 /*  Configuracao do universo (tudo ajustavel — mude e veja a vida     */
@@ -528,6 +537,10 @@ static void rebrotar(void) {
 
 /* ================================================================== */
 /*  PART 4 — RENDER + LACO PRINCIPAL                                   */
+/*  Duas janelas para o mesmo mundo: a visao de DEUS (o mundo inteiro  */
+/*  de fora, desenhar) e a PRIMEIRA PESSOA (descer para dentro de um   */
+/*  unico bloco e ver so o que ele percebe e sente, desenhar_1p) — os  */
+/*  dois lados do "explanatory gap", a um aperto de tecla um do outro. */
 /* ================================================================== */
 
 /* Codigos ANSI: limpar tela, esconder/mostrar cursor, cores. */
@@ -538,6 +551,57 @@ static void rebrotar(void) {
 
 static volatile sig_atomic_t parar = 0;
 static void ao_interromper(int s) { (void)s; parar = 1; }
+
+/* ------------------------------------------------------------------ */
+/*  Interacao: a "pilula vermelha" (entrar/sair de um bloco).          */
+/*  Estado da JANELA, nao do mundo — por isso fica fora da simulacao.  */
+/* ------------------------------------------------------------------ */
+static int modo_1p    = 0;   /* 0 = visao de deus; 1 = primeira pessoa     */
+static int foco       = -1;  /* indice do bloco "habitado" em 1a pessoa    */
+static int pausado    = 0;   /* congela o tempo sem fechar a janela        */
+static int interativo = 0;   /* so liga teclado se stdin E stdout sao tty  */
+
+/* Terminal em modo CRU: ler tecla a tecla, sem esperar Enter e sem eco.
+ * Guardamos o estado original para devolver o terminal intacto na saida. */
+static struct termios termios_orig;
+static int termios_ativo = 0;
+static void termios_restaura(void) {
+    if (termios_ativo) {
+        tcsetattr(STDIN_FILENO, TCSANOW, &termios_orig);
+        termios_ativo = 0;
+    }
+}
+static void termios_cru(void) {
+    if (tcgetattr(STDIN_FILENO, &termios_orig) != 0) return;
+    struct termios cru = termios_orig;
+    cru.c_lflag &= ~(ICANON | ECHO);   /* sem buffer de linha, sem eco  */
+    cru.c_cc[VMIN]  = 0;               /* read() devolve na hora...     */
+    cru.c_cc[VTIME] = 0;               /* ...com 0 bytes se nada chegou */
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &cru) == 0) termios_ativo = 1;
+}
+
+/* Le uma tecla ja disponivel; devolve 0 se nao ha nenhuma (nao bloqueia). */
+static int ler_tecla(void) {
+    unsigned char c;
+    return (read(STDIN_FILENO, &c, 1) == 1) ? (int)c : 0;
+}
+
+/* Acha um bloco VIVO a partir de 'de', andando na direcao 'dir' (+1/-1) e
+ * dando a volta no array. Devolve -1 se nao restou ninguem vivo. */
+static int bloco_vivo(int de, int dir) {
+    if (n_blocos == 0) return -1;
+    for (int passo = 0; passo < n_blocos; passo++) {
+        de = (de + dir + n_blocos) % n_blocos;
+        if (blocos[de].vivo) return de;
+    }
+    return -1;
+}
+
+/* Garante que 'foco' aponta para um bloco vivo (ou -1 se a vida acabou). */
+static void foco_valido(void) {
+    if (foco < 0 || foco >= n_blocos || !blocos[foco].vivo)
+        foco = bloco_vivo(foco < 0 ? -1 : foco, +1);
+}
 
 /* Estatisticas para o HUD. */
 static int populacao(void) {
@@ -614,11 +678,122 @@ static void desenhar(uint32_t seed, long tick) {
     fflush(stdout);
 }
 
+/* Uma barrinha ASCII de 10 casas para um valor 0..1 (clampado). */
+static void barra(char *out, float frac) {
+    if (frac < 0.0f) frac = 0.0f;
+    if (frac > 1.0f) frac = 1.0f;
+    int n = (int)(frac * 10.0f + 0.5f);
+    for (int i = 0; i < 10; i++) out[i] = (i < n) ? '#' : '.';
+    out[10] = '\0';
+}
+
+/* A "PILULA VERMELHA": a vista em PRIMEIRA PESSOA de um unico bloco. O mundo
+ * encolhe para o que ELE percebe (a vizinhanca 3x3) e para o que ELE sente
+ * (energia, fome, tracos) e quer (a utilidade imaginada de cada jogada).
+ * Onde a visao de deus mostra o mecanismo de fora, esta mostra o lado de
+ * dentro — encena, em ASCII, a pergunta "como e ser este bloco?". */
+static void desenhar_1p(uint32_t seed, long tick, int f) {
+    static char buf[8192];
+    int p = 0;
+    Bloco *b = &blocos[f];
+
+    p += sprintf(buf + p, CLS);
+    p += sprintf(buf + p,
+        "  PILULA VERMELHA  —  dentro do bloco #%d   (seed %u, tick %ld)\n\n",
+        f, seed, tick);
+
+    /* 1) O mundo como ELE o percebe: nada alem da vizinhanca 3x3. */
+    p += sprintf(buf + p, "  O universo, do lado de dentro (tudo que ele percebe):\n\n");
+    for (int dy = -1; dy <= 1; dy++) {
+        p += sprintf(buf + p, "      ");
+        for (int dx = -1; dx <= 1; dx++) {
+            int nx = b->x + dx, ny = b->y + dy;
+            if (dx == 0 && dy == 0)
+                p += sprintf(buf + p, "\033[96m[EU]\033[0m ");          /* ciano: ele  */
+            else if (nx < 0 || nx >= LARG || ny < 0 || ny >= ALT)
+                p += sprintf(buf + p, "\033[90m####\033[0m ");          /* o fim do mundo */
+            else if (ocup[ny][nx] != -1)
+                p += sprintf(buf + p, "\033[91m @  \033[0m ");          /* outro: um rival */
+            else {
+                float c = comida[ny][nx];
+                char g = c < 0.4f ? ' ' : c < 1.3f ? '.' : c < 2.8f ? ':' : '*';
+                p += sprintf(buf + p, "\033[2;32m %c  \033[0m ", g);    /* solo: comida   */
+            }
+        }
+        p += sprintf(buf + p, "\n");
+    }
+
+    /* 2) Como ele se SENTE: valencia e fome (a valencia em acao). */
+    float fome = 1.0f - b->energia / SACIADO;
+    if (fome < 0.0f) fome = 0.0f;
+    if (fome > 1.0f) fome = 1.0f;
+    char be[11], bf[11];
+    barra(be, b->energia / REPRO);   /* REPRO ~ energia "cheia" (vai se dividir) */
+    barra(bf, fome);
+    p += sprintf(buf + p, "\n  Como ele se sente:\n");
+    p += sprintf(buf + p, "      energia (valencia) %5.1f  [%s]\n", b->energia, be);
+    p += sprintf(buf + p, "      fome               %4.2f  [%s]\n", fome, bf);
+    p += sprintf(buf + p, "      personalidade: horizonte %d  desconto %.2f"
+                          "  urgencia %.1f  espaco %.1f\n",
+                 b->horizonte, b->desconto, b->urgencia, b->peso_espaco);
+
+    /* 3) O que ele QUER: a utilidade imaginada de cada jogada possivel. */
+    float melhor = -1e30f; int mdx = 0, mdy = 0;
+    for (int dy = -1; dy <= 1; dy++)
+        for (int dx = -1; dx <= 1; dx++) {
+            int nx = b->x + dx, ny = b->y + dy;
+            if (nx < 0 || nx >= LARG || ny < 0 || ny >= ALT) continue;
+            if (!(dx == 0 && dy == 0) && ocup[ny][nx] != -1) continue;  /* inalcancavel */
+            float u = utilidade(nx, ny, b);
+            if (u > melhor) { melhor = u; mdx = dx; mdy = dy; }
+        }
+    p += sprintf(buf + p, "\n  O que ele quer (utilidade imaginada de cada jogada):\n\n");
+    for (int dy = -1; dy <= 1; dy++) {
+        p += sprintf(buf + p, "      ");
+        for (int dx = -1; dx <= 1; dx++) {
+            int nx = b->x + dx, ny = b->y + dy;
+            int fora    = (nx < 0 || nx >= LARG || ny < 0 || ny >= ALT);
+            int ocupada = !fora && !(dx == 0 && dy == 0) && ocup[ny][nx] != -1;
+            if (fora || ocupada) { p += sprintf(buf + p, "  ---  "); continue; }
+            float u = utilidade(nx, ny, b);
+            int eh_melhor = (dx == mdx && dy == mdy);
+            const char *fmt = (dx == 0 && dy == 0)
+                ? (eh_melhor ? "\033[93m(%4.1f)*\033[0m" : "(%4.1f) ")
+                : (eh_melhor ? "\033[93m %4.1f* \033[0m" : " %4.1f  ");
+            p += sprintf(buf + p, fmt, u);
+        }
+        p += sprintf(buf + p, "\n");
+    }
+    const char *dir =
+        (mdx == 0 && mdy == 0)   ? "FICAR onde esta"       :
+        (mdx == 0 && mdy == -1)  ? "subir (norte)"         :
+        (mdx == 0 && mdy ==  1)  ? "descer (sul)"          :
+        (mdx == -1 && mdy == 0)  ? "ir a esquerda (oeste)" :
+        (mdx ==  1 && mdy == 0)  ? "ir a direita (leste)"  :
+        (mdx == -1 && mdy == -1) ? "noroeste"              :
+        (mdx ==  1 && mdy == -1) ? "nordeste"              :
+        (mdx == -1 && mdy ==  1) ? "sudoeste"              : "sudeste";
+    p += sprintf(buf + p, "\n      decisao: %s  (utilidade %.1f)\n", dir, melhor);
+
+    /* 4) O fechamento — o ponto filosofico inteiro, em duas linhas. */
+    p += sprintf(buf + p,
+        "\n  Isto e TUDO que ele sabe. O resto da Matrix nao existe para ele.\n");
+    p += sprintf(buf + p,
+        "  [p] visao de deus   [, .] trocar de bloco   [espaco] %s   [q] sair\n",
+        pausado ? "retomar" : "pausa");
+
+    fwrite(buf, 1, p, stdout);
+    fflush(stdout);
+}
+
 int main(int argc, char **argv) {
     uint32_t seed  = (argc > 1) ? (uint32_t)strtoul(argv[1], NULL, 10) : 20260628u;
     long    ticks  = (argc > 2) ? strtol(argv[2], NULL, 10) : 0;   /* 0 = infinito */
     long    delay  = (argc > 3) ? strtol(argv[3], NULL, 10) : 80;  /* ms por frame */
     if (delay < 0) delay = 0;
+    /* 4o arg opcional: entrar ja em 1a pessoa neste bloco (util para inspecionar
+     * sem teclado, inclusive com a saida redirecionada). -1 = visao de deus. */
+    if (argc > 4) { foco = (int)strtol(argv[4], NULL, 10); modo_1p = (foco >= 0); }
 
     rng_estado = seed ? seed : 1u;   /* o RNG do universo nasce da seed      */
     signal(SIGINT, ao_interromper);
@@ -626,36 +801,64 @@ int main(int argc, char **argv) {
     gerar_mundo(seed);
     semear_blocos();
 
+    /* Teclado so faz sentido num terminal de verdade (stdin E stdout tty).
+     * Com a saida num pipe/arquivo seguimos nao-interativos, igual a antes —
+     * os scripts de amostragem (./bin/matrix ... | grep) continuam valendo. */
+    interativo = isatty(STDIN_FILENO) && isatty(STDOUT_FILENO);
+    if (interativo) { termios_cru(); atexit(termios_restaura); }
+
     struct timespec pausa = { delay / 1000, (delay % 1000) * 1000000L };
+    struct timespec respiro = { 0, 50 * 1000000L };   /* 50ms enquanto pausado */
 
     fputs(CUR_OFF, stdout);
 
     long t = 0;
     while (!parar && (ticks == 0 || t < ticks)) {
-        desenhar(seed, t);
+        /* 1) consumir o teclado (pode chegar mais de uma tecla por frame) */
+        if (interativo) {
+            int c;
+            while ((c = ler_tecla())) {
+                if      (c == 'q')                  parar = 1;
+                else if (c == 'p' || c == '\t')   { modo_1p = !modo_1p; if (modo_1p) foco_valido(); }
+                else if (c == ' ')                  pausado = !pausado;
+                else if (modo_1p && (c == '.' || c == 'm')) { foco_valido(); foco = bloco_vivo(foco, +1); }
+                else if (modo_1p && (c == ',' || c == 'n')) { foco_valido(); foco = bloco_vivo(foco, -1); }
+            }
+        }
+
+        /* 2) em 1a pessoa, se a vida acabou, volta para a visao de deus */
+        if (modo_1p) { foco_valido(); if (foco < 0) modo_1p = 0; }
+
+        /* 3) desenhar conforme o modo */
+        if (modo_1p) desenhar_1p(seed, t, foco);
+        else         desenhar(seed, t);
 
         if (populacao() == 0) {                 /* extincao total           */
             printf("\n  Silencio. A populacao se extinguiu no tick %ld.\n", t);
             break;
         }
 
-        /* O tick: declarar -> reconsiderar -> resolver -> escrever -> reproduzir
-         * -> mundo. As duas passagens de decisao (nivel 5) leem o mesmo estado
-         * estavel: a 1a preenche as intencoes, a 2a as consulta. */
-        for (int i = 0; i < n_blocos; i++)
-            if (blocos[i].vivo) declarar(i);
-        for (int i = 0; i < n_blocos; i++)
-            if (blocos[i].vivo) decidir(i);
-        resolver();
-        aplicar_e_comer();
-        reproduzir();
-        rebrotar();
+        /* 4) o tick — congelado enquanto 'pausado'. declarar -> reconsiderar ->
+         * resolver -> escrever -> reproduzir -> mundo (as 2 passagens do nv5
+         * leem o mesmo estado estavel: a 1a preenche intencoes, a 2a consulta). */
+        if (!pausado) {
+            for (int i = 0; i < n_blocos; i++)
+                if (blocos[i].vivo) declarar(i);
+            for (int i = 0; i < n_blocos; i++)
+                if (blocos[i].vivo) decidir(i);
+            resolver();
+            aplicar_e_comer();
+            reproduzir();
+            rebrotar();
+            t++;
+        }
 
-        if (delay > 0) nanosleep(&pausa, NULL);
-        t++;
+        if      (!pausado && delay > 0) nanosleep(&pausa, NULL);
+        else if (pausado)               nanosleep(&respiro, NULL);
     }
 
     fputs(CUR_ON, stdout);
+    if (interativo) termios_restaura();
     if (parar) printf("\n  Encerrado no tick %ld. O universo era f(seed=%u).\n", t, seed);
     return 0;
 }

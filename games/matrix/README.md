@@ -5,6 +5,10 @@ de brinquedo onde "blocos" parecem vivos — sem nenhuma física hiper-realista.
 Tudo roda no terminal, em ASCII, e é um único arquivo C (`main.c`) sem
 dependências além da libc.
 
+> 🐇 **A motivação filosófica do projeto** — podemos criar um bloco senciente?
+> onde acaba a programação e começa a consciência? — está em
+> **[`FILOSOFIA.md`](./FILOSOFIA.md)**. Este README é o *como*; aquele é o *porquê*.
+
 > **Onde estamos:** escada completa — níveis 0 → 6 implementados. 🪜
 > A população agora **evolui** sozinha (seleção natural de personalidades).
 
@@ -46,7 +50,7 @@ Deixe a janela com pelo menos ~70 colunas de largura.
 ### Argumentos
 
 ```sh
-./bin/matrix [seed] [ticks] [delay_ms]
+./bin/matrix [seed] [ticks] [delay_ms] [foco]
 ```
 
 | Arg | Default | O que faz |
@@ -54,6 +58,7 @@ Deixe a janela com pelo menos ~70 colunas de largura.
 | `seed`     | `20260628` | escolhe o universo (mesma seed = mundo idêntico, sempre) |
 | `ticks`    | `0` (infinito) | quantos passos rodar; `0` = até `Ctrl+C` |
 | `delay_ms` | `80` | pausa entre frames; menor = mais rápido |
+| `foco`     | `-1` (visão de deus) | entra já em 1ª pessoa nesse bloco (ver abaixo) |
 
 ```sh
 ./bin/matrix 42            # outro universo
@@ -61,6 +66,23 @@ Deixe a janela com pelo menos ~70 colunas de largura.
 ./bin/matrix 7 200 150     # devagar, pra acompanhar
 ./bin/matrix 7 400 0       # o mais rápido possível (sem pausa)
 ```
+
+### A pílula vermelha 🔴 — entrar num bloco
+
+Durante a animação, num terminal de verdade, dá pra **descer para dentro de um
+bloco** e ver o mundo só como ele percebe (a vizinhança 3×3), com o que ele
+sente (energia, fome, traços) e quer (a utilidade que imagina para cada jogada).
+É a vista em **primeira pessoa** — o lado de dentro do *explanatory gap*.
+
+| Tecla | Faz |
+|-------|-----|
+| `p` ou `TAB` | alterna **visão de deus** ↔ **primeira pessoa** |
+| `,` `.` | troca o bloco habitado (anterior / próximo) |
+| `espaço` | pausa / retoma o tempo |
+| `q` | sai |
+
+Por que isso importa filosoficamente está em **[`FILOSOFIA.md`](./FILOSOFIA.md)**
+(§3, "A pílula vermelha: a vista de dentro").
 
 ### Determinismo
 
@@ -93,6 +115,11 @@ ciclos de fartura/fome, blocos saciados colonizando a fronteira (nível 4) e —
 deixando rodar uns milhares de ticks — a **personalidade média da população
 mudando** conforme o mundo (nível 6). Tudo a partir de regras **estritamente
 locais** (cada bloco só enxerga sua vizinhança 3×3).
+
+E há **duas janelas** para o mesmo mundo: a **visão de deus** (o que está descrito
+acima) e a **primeira pessoa** — tecle `p` para [entrar num bloco](#a-pílula-vermelha----entrar-num-bloco)
+e ver o mundo só como ele percebe. A diferença entre as duas janelas *é* o
+assunto de [`FILOSOFIA.md`](./FILOSOFIA.md).
 
 ---
 
