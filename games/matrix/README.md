@@ -94,6 +94,8 @@ duas famílias: **ablação** (arranca-se a faculdade — a decisão muda?) e
 **calibração** (uma estrutura interna bate com a realidade?). Se arrancar não
 muda nada, a palavra mental *desbota*. Mede **função (papel causal), nunca
 experiência** — cada mostrador é uma **caricatura honesta**, no espírito do `Φ~`.
+O *porquê* disso tudo — a ponte para sistemas complexos, a pergunta que costura o
+projeto e o desfecho honesto — está em [`FILOSOFIA_v2.md`](./FILOSOFIA_v2.md).
 
 | Mostrador | Palavra | Família | Como mede |
 |-----------|---------|---------|-----------|
