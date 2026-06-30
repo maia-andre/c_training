@@ -65,6 +65,7 @@
 #include <time.h>
 #include <unistd.h>    /* isatty, read, STDIN/STDOUT_FILENO (teclado nao-bloqueante) */
 #include <termios.h>   /* modo cru do terminal: ler tecla a tecla, sem Enter nem eco */
+#include <string.h>    /* strcmp: separar flags (--log) dos argumentos posicionais  */
 
 /* ------------------------------------------------------------------ */
 /*  Configuracao do universo (tudo ajustavel — mude e veja a vida     */
@@ -157,6 +158,18 @@ static uint32_t rng(void) {
 static float rng01(void) { return (rng() >> 8) / 16777216.0f; }  /* 0..1 */
 
 static float menor(float a, float b) { return a < b ? a : b; }
+
+/* Raiz quadrada sem <math.h> (o projeto compila sem -lm, igual ao resto da
+ * matematica daqui). Newton-Raphson: a iteracao x <- (x + v/x)/2 converge
+ * QUADRATICAMENTE para sqrt(v) — cada passo ~dobra os digitos certos, entao
+ * meia duzia ja satura a precisao de um float. Usada so para o desvio-padrao. */
+static float raiz(float v) {
+    if (v <= 0.0f) return 0.0f;       /* variancia nunca e negativa; protege /0 */
+    float x = v > 1.0f ? v : 1.0f;    /* chute inicial >= sqrt(v) para todo v>0 */
+    for (int i = 0; i < 12; i++)
+        x = 0.5f * (x + v / x);
+    return x;
+}
 
 /* ================================================================== */
 /*  PART 1 — MUNDO PROCEDURAL                                          */
@@ -653,6 +666,67 @@ static float phi_proxy(Bloco *b) {
     return tot ? 10.0f * (float)disc / (float)tot : 0.0f;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Agregados de uma populacao num tick: a "leitura" do instrumento.   */
+/*  Um SO lugar calcula tudo (DRY) — o HUD e o log de dados (--log)     */
+/*  consomem a mesma struct, entao a tela e o CSV nunca se contradizem. */
+/* ------------------------------------------------------------------ */
+typedef struct {
+    int   pop;
+    float energia_media;
+    float comida_total;
+    float phi_media;
+    /* media (_m) e desvio-padrao (_sd) de cada traco herdavel do nivel 6 */
+    float hor_m,  hor_sd;
+    float desc_m, desc_sd;
+    float urg_m,  urg_sd;
+    float esp_m,  esp_sd;
+} Stats;
+
+static Stats coletar_stats(void) {
+    Stats s = {0};                 /* zera tudo: pop=0, medias=0...           */
+
+    /* 1a passagem: somas -> medias. Precisamos da media ANTES da variancia. */
+    float se = 0, su = 0, sp = 0, sd = 0, sh = 0, sphi = 0;
+    for (int i = 0; i < n_blocos; i++) if (blocos[i].vivo) {
+        s.pop++;
+        se   += blocos[i].energia;
+        su   += blocos[i].urgencia;
+        sp   += blocos[i].peso_espaco;
+        sd   += blocos[i].desconto;
+        sh   += blocos[i].horizonte;     /* int -> float na soma              */
+        sphi += phi_proxy(&blocos[i]);
+    }
+    float inv = s.pop ? 1.0f / s.pop : 0.0f;
+    s.energia_media = se   * inv;
+    s.phi_media     = sphi * inv;
+    s.hor_m  = sh * inv;  s.desc_m = sd * inv;
+    s.urg_m  = su * inv;  s.esp_m  = sp * inv;
+
+    /* 2a passagem: variancia = media dos desvios ao quadrado. Populacional
+     * (/N, nao /N-1) porque temos a populacao INTEIRA, nao uma amostra dela.
+     * Duas passagens em vez da formula de uma so ("media dos quadrados menos
+     * quadrado da media"): aquela subtrai dois numeros grandes e quase iguais
+     * — cancelamento catastrofico, que come os digitos significativos. */
+    float vh = 0, vd = 0, vu = 0, ve = 0;
+    for (int i = 0; i < n_blocos; i++) if (blocos[i].vivo) {
+        float dh = blocos[i].horizonte   - s.hor_m;   vh += dh * dh;
+        float dd = blocos[i].desconto    - s.desc_m;  vd += dd * dd;
+        float du = blocos[i].urgencia    - s.urg_m;   vu += du * du;
+        float de = blocos[i].peso_espaco - s.esp_m;   ve += de * de;
+    }
+    s.hor_sd  = raiz(vh * inv);  s.desc_sd = raiz(vd * inv);
+    s.urg_sd  = raiz(vu * inv);  s.esp_sd  = raiz(ve * inv);
+
+    /* comida total do solo: varre o reticulado, nao os blocos */
+    float sc = 0;
+    for (int y = 0; y < ALT; y++)
+        for (int x = 0; x < LARG; x++) sc += comida[y][x];
+    s.comida_total = sc;
+
+    return s;     /* struct devolvida por VALOR: copia barata, sem ponteiro solto */
+}
+
 /* Desenha um frame inteiro num buffer e cospe de uma vez (menos piscada). */
 static void desenhar(uint32_t seed, long tick) {
     static char buf[ALT * LARG * 16 + 4096];
@@ -693,27 +767,19 @@ static void desenhar(uint32_t seed, long tick) {
     for (int x = 0; x < LARG; x++) buf[p++] = '-';
     p += sprintf(buf + p, "+\n");
 
-    /* HUD */
-    int pop = populacao();
-    float soma_e = 0.0f, soma_c = 0.0f, s_phi = 0.0f;
-    /* (nivel 6) medias dos tracos vivos: e aqui que se VE a evolucao acontecer. */
-    float s_urg = 0.0f, s_esp = 0.0f, s_desc = 0.0f, s_hor = 0.0f;
-    for (int i = 0; i < n_blocos; i++) if (blocos[i].vivo) {
-        soma_e += blocos[i].energia;
-        s_urg  += blocos[i].urgencia;     s_esp += blocos[i].peso_espaco;
-        s_desc += blocos[i].desconto;     s_hor += blocos[i].horizonte;
-        s_phi  += phi_proxy(&blocos[i]);  /* Φ: a luz acesa (proxy de integracao) */
-    }
-    for (int y = 0; y < ALT; y++) for (int x = 0; x < LARG; x++) soma_c += comida[y][x];
-    float inv = pop ? 1.0f / pop : 0.0f;
+    /* HUD — uma so coleta de estatisticas alimenta a tela e o log (coletar_stats). */
+    Stats st = coletar_stats();
 
     p += sprintf(buf + p,
         "  seed %-10u  tick %-6ld  pop %-4d  energia media %5.1f  comida %6.0f  Φ~ %4.1f\n",
-        seed, tick, pop, soma_e * inv, soma_c, s_phi * inv);
+        seed, tick, st.pop, st.energia_media, st.comida_total, st.phi_media);
+    /* media ± desvio: o desvio revela se a populacao CONVERGE (todos parecidos,
+     * desvio -> 0) ou se DIVERSIFICA em nichos (desvio cresce). */
     p += sprintf(buf + p,
-        "  tracos medios (evoluindo):  horizonte %4.1f  desconto %4.2f"
-        "  urgencia %4.1f  espaco %4.1f\n",
-        s_hor * inv, s_desc * inv, s_urg * inv, s_esp * inv);
+        "  tracos media±desvio:  horizonte %4.1f±%-3.1f  desconto %4.2f±%-4.2f"
+        "  urgencia %4.1f±%-3.1f  espaco %4.1f±%-3.1f\n",
+        st.hor_m, st.hor_sd, st.desc_m, st.desc_sd,
+        st.urg_m, st.urg_sd, st.esp_m, st.esp_sd);
     p += sprintf(buf + p,
         "  legenda: \033[92m@\033[0m forte  \033[93m@\033[0m ok  \033[91m@\033[0m fraco"
         "   \033[2;32m. : *\033[0m comida    (Ctrl+C para sair)\n");
@@ -885,13 +951,41 @@ static void desenhar_1p(uint32_t seed, long tick, int f) {
 }
 
 int main(int argc, char **argv) {
-    uint32_t seed  = (argc > 1) ? (uint32_t)strtoul(argv[1], NULL, 10) : 20260628u;
-    long    ticks  = (argc > 2) ? strtol(argv[2], NULL, 10) : 0;   /* 0 = infinito */
-    long    delay  = (argc > 3) ? strtol(argv[3], NULL, 10) : 80;  /* ms por frame */
+    /* Separa FLAGS (--log ARQUIVO) dos argumentos POSICIONAIS, numa passagem.
+     * Os posicionais sobrevivem na ordem em 'pos[]'; assim "seed ticks delay
+     * foco" continua valendo com ou sem a flag, em qualquer posicao. */
+    const char *log_path = NULL;
+    char *pos[8]; int np = 0;
+    pos[np++] = argv[0];
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--log") == 0 && i + 1 < argc) {
+            log_path = argv[++i];                 /* consome o proximo arg     */
+        } else if (np < 8) {
+            pos[np++] = argv[i];
+        }
+    }
+
+    uint32_t seed  = (np > 1) ? (uint32_t)strtoul(pos[1], NULL, 10) : 20260628u;
+    long    ticks  = (np > 2) ? strtol(pos[2], NULL, 10) : 0;   /* 0 = infinito */
+    long    delay  = (np > 3) ? strtol(pos[3], NULL, 10) : 80;  /* ms por frame */
     if (delay < 0) delay = 0;
-    /* 4o arg opcional: entrar ja em 1a pessoa neste bloco (util para inspecionar
-     * sem teclado, inclusive com a saida redirecionada). -1 = visao de deus. */
-    if (argc > 4) { foco = (int)strtol(argv[4], NULL, 10); modo_1p = (foco >= 0); }
+    /* 4o posicional opcional: entrar ja em 1a pessoa neste bloco (util para
+     * inspecionar sem teclado, inclusive com a saida redirecionada). -1 = deus. */
+    if (np > 4) { foco = (int)strtol(pos[4], NULL, 10); modo_1p = (foco >= 0); }
+
+    /* --log ARQUIVO: abre um CSV e escreve uma linha de estatisticas por tick.
+     * A simulacao vira um DATASET reproduzivel — a base do "instrumento". O log
+     * roda independente da animacao (plano de DADOS x plano de APRESENTACAO). */
+    FILE *logf = NULL;
+    if (log_path) {
+        logf = fopen(log_path, "w");
+        if (!logf) {
+            fprintf(stderr, "matrix: nao consegui abrir '%s' para escrita\n", log_path);
+            return 1;
+        }
+        fprintf(logf, "seed,tick,pop,energia_media,comida_total,phi_media,"
+                      "hor_m,hor_sd,desc_m,desc_sd,urg_m,urg_sd,esp_m,esp_sd\n");
+    }
 
     rng_estado = seed ? seed : 1u;   /* o RNG do universo nasce da seed      */
     signal(SIGINT, ao_interromper);
@@ -940,6 +1034,16 @@ int main(int argc, char **argv) {
          * resolver -> escrever -> reproduzir -> mundo (as 2 passagens do nv5
          * leem o mesmo estado estavel: a 1a preenche intencoes, a 2a consulta). */
         if (!pausado) {
+            if (logf) {
+                Stats st = coletar_stats();           /* estado ENTRANDO no tick t */
+                fprintf(logf,
+                    "%u,%ld,%d,%.3f,%.1f,%.3f,"
+                    "%.3f,%.3f,%.4f,%.4f,%.3f,%.3f,%.3f,%.3f\n",
+                    seed, t, st.pop, st.energia_media, st.comida_total, st.phi_media,
+                    st.hor_m, st.hor_sd, st.desc_m, st.desc_sd,
+                    st.urg_m, st.urg_sd, st.esp_m, st.esp_sd);
+                fflush(logf);   /* descarrega ja: Ctrl+C no meio nao perde a cauda */
+            }
             for (int i = 0; i < n_blocos; i++)
                 if (blocos[i].vivo) declarar(i);
             for (int i = 0; i < n_blocos; i++)
@@ -957,6 +1061,7 @@ int main(int argc, char **argv) {
 
     fputs(CUR_ON, stdout);
     if (interativo) termios_restaura();
+    if (logf) fclose(logf);   /* fclose tambem descarrega o buffer pendente */
     if (parar) printf("\n  Encerrado no tick %ld. O universo era f(seed=%u).\n", t, seed);
     return 0;
 }

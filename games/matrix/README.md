@@ -67,6 +67,24 @@ Deixe a janela com pelo menos ~70 colunas de largura.
 ./bin/matrix 7 400 0       # o mais rápido possível (sem pausa)
 ```
 
+### Registrar dados (`--log`) — a simulação como dataset
+
+A flag `--log <arquivo>` escreve um **CSV**, uma linha de estatísticas por tick.
+Ela é independente da animação (pode rodar junto com a tela ou *headless*), e
+combina com os posicionais em qualquer posição:
+
+```sh
+./bin/matrix 7 2000 0 --log run7.csv     # 2000 ticks, sem pausa, gravando tudo
+./bin/matrix --log run7.csv 7 2000 0     # idêntico (a flag pode vir antes)
+```
+
+Colunas: `seed, tick, pop, energia_media, comida_total, phi_media` e, para cada
+um dos 4 traços do nível 6, a **média** (`_m`) e o **desvio-padrão** (`_sd`):
+`hor_*, desc_*, urg_*, esp_*`. Como o universo é `f(seed)` (ver abaixo), o CSV é
+**reproduzível bit-a-bit**: qualquer pessoa regenera o mesmo dataset a partir da
+seed. É a base para virar instrumento de pesquisa — varrer seeds/parâmetros e
+medir o que a evolução faz, em vez de só assistir.
+
 ### A pílula vermelha 🔴 — entrar num bloco
 
 Durante a animação, num terminal de verdade, dá pra **descer para dentro de um
@@ -107,9 +125,10 @@ Pra conferir a população num tick específico sem assistir à animação:
 - ` ` (vazio) = deserto / comida quase zero.
 - HUD embaixo, três linhas: (1) `seed`, `tick`, `pop` (população viva),
   `energia media`, `comida` (total no mundo) e **`Φ~`** (a "luz acesa" — um proxy
-  de integração, ver [`FILOSOFIA.md`](./FILOSOFIA.md) §5); (2) **traços médios** da
-  população (`horizonte`, `desconto`, `urgencia`, `espaco`) — assista-os derivarem
-  ao longo dos ticks: é a evolução do nível 6 acontecendo ao vivo; (3) a legenda.
+  de integração, ver [`FILOSOFIA.md`](./FILOSOFIA.md) §5); (2) **traços `média±desvio`**
+  da população (`horizonte`, `desconto`, `urgencia`, `espaco`) — a média deriva
+  (evolução do nível 6 ao vivo) e o **desvio** mostra se a população *converge*
+  (todos parecidos, desvio→0) ou *diversifica* em nichos (desvio cresce); (3) a legenda.
 
 Dá pra ver emergir: manadas em torno de manchas férteis, colapsos por escassez,
 ciclos de fartura/fome, blocos saciados colonizando a fronteira (nível 4) e —
