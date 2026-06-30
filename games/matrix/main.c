@@ -730,46 +730,83 @@ static Stats coletar_stats(void) {
 /* ------------------------------------------------------------------ */
 /*  Bateria de desbotamento: para cada palavra mental, um mostrador    */
 /*  [0,1] que mede se a FACULDADE correspondente carrega o             */
-/*  comportamento. Por ablacao: arranco a faculdade e vejo se a        */
-/*  decisao muda. Se nao muda, a palavra desbota. Mede FUNCAO (papel   */
-/*  causal), nunca experiencia — cada mostrador e uma caricatura.      */
+/*  comportamento. Duas familias: ABLACAO (arranco a faculdade — a     */
+/*  decisao muda?) e CALIBRACAO (uma estrutura interna bate com a      */
+/*  realidade?). Se arrancar nao muda nada, a palavra desbota. Mede    */
+/*  FUNCAO (papel causal), nunca experiencia — cada um e caricatura.   */
 /* ------------------------------------------------------------------ */
 typedef struct {
-    int   n;            /* blocos vivos medidos                                 */
-    float agencia;      /* "quer/escolhe": fracao cuja decisao muda com a fome  */
-    float automodelo;   /* "eu, um entre outros": fracao que muda ao antecipar  */
+    float modelo;       /* CALIBRACAO "preve/sabe": o mapa bate com o territorio  */
+    float agencia;      /* ABLACAO "quer/escolhe": a decisao muda com a fome      */
+    float automodelo;   /* ABLACAO "eu, um entre outros": muda ao antecipar       */
 } Bateria;
 
 static Bateria ultima_bateria;   /* ultimo tick medido; lido pelo HUD e pelo log */
 
-static Bateria medir_bateria(void) {
-    Bateria b = {0};
-    for (int i = 0; i < n_blocos; i++) if (blocos[i].vivo) {
-        b.n++;
+/* Estado do mostrador 'modelo' (arrays paralelos a blocos[]): ao decidir, cada
+ * bloco PREVE a colheita do 1o passo na celula escolhida; um tick depois a gente
+ * confere com o que ele DE FATO colheu. So da pra pontuar uma previsao depois do
+ * desfecho — dai o atraso natural de 1 tick. */
+static float pred_colheita[MAX_AG];   /* colheita prevista no alvo cognitivo */
+static float energia_antes[MAX_AG];   /* energia na hora de decidir          */
+static int   pred_valido[MAX_AG];     /* este slot previu algo neste tick?   */
 
-        /* AUTO-MODELO (nv5), de graca: a antecipacao dos rivais mudou a escolha?
-         * intencao = decisao pre-social (declarar); alvo = pos-social (decidir).
-         * Lido aqui, ANTES de resolver(), isola o efeito COGNITIVO do bloqueio. */
-        if (intencao_x[i] != alvo_x[i] || intencao_y[i] != alvo_y[i])
-            b.automodelo += 1.0f;
+/* FASE 1 (apos decidir, ANTES de resolver): os dois mostradores de ablacao, e
+ * guarda a previsao do modelo. Le o alvo COGNITIVO — antes de resolver() trocar
+ * alvos negados pela posicao atual (queremos o efeito da mente, nao do bloqueio). */
+static void medir_decisao(void) {
+    int   n = 0;
+    float ag = 0.0f, au = 0.0f;
+    for (int i = 0; i < n_blocos; i++) {
+        if (!blocos[i].vivo) { pred_valido[i] = 0; continue; }
+        n++;
 
-        /* AGENCIA (nv4): a MESMA situacao, mudando so a fome, muda a decisao?
-         * Reroda a decisao em dois clones — faminto x saciado — no mesmo mundo.
-         * melhor_celula nao tem efeito colateral (so escreve nos out-params),
-         * entao o contrafactual nao suja o estado real do universo. */
+        /* AUTO-MODELO (nv5), de graca: antecipar os rivais mudou a escolha?
+         * intencao = pre-social (declarar) x alvo = pos-social (decidir). */
+        if (intencao_x[i] != alvo_x[i] || intencao_y[i] != alvo_y[i]) au += 1.0f;
+
+        /* AGENCIA (nv4): so mudando a fome, a decisao muda? Reroda a escolha em
+         * dois clones (faminto x saciado) no mesmo mundo. melhor_celula nao tem
+         * efeito colateral (so escreve nos out-params): o contrafactual e seguro. */
         Bloco faminto = blocos[i], saciado = blocos[i];
         faminto.energia = 0.10f * SACIADO;   /* a beira da morte */
         saciado.energia = 1.00f * SACIADO;   /* fome zero        */
         int fx, fy, sx, sy;
         melhor_celula(&faminto, i, 1, &fx, &fy);
         melhor_celula(&saciado, i, 1, &sx, &sy);
-        if (fx != sx || fy != sy)
-            b.agencia += 1.0f;
+        if (fx != sx || fy != sy) ag += 1.0f;
+
+        /* MODELO (nv3): guarda a colheita prevista (1 passo, so o recurso) no
+         * alvo escolhido. O 'real' chega no medir_modelo, depois de comer. */
+        pred_colheita[i] = menor(comida[alvo_y[i]][alvo_x[i]], INGESTAO);
+        energia_antes[i] = blocos[i].energia;
+        pred_valido[i]   = 1;
     }
-    float inv = b.n ? 1.0f / b.n : 0.0f;
-    b.agencia    *= inv;
-    b.automodelo *= inv;
-    return b;
+    float inv = n ? 1.0f / n : 0.0f;
+    ultima_bateria.agencia    = ag * inv;
+    ultima_bateria.automodelo = au * inv;
+}
+
+/* FASE 2 (apos aplicar_e_comer, ANTES de reproduzir reusar slots): confere a
+ * previsao contra a colheita real. real = variacao de energia + metabolismo pago
+ * (Δe = colheita - METABOLISMO). Erro simetrico normalizado -> acc em [0,1]:
+ * 1 = previu certo, 0 = errou tudo. Quem chegou ao alvo acerta na mosca (nada
+ * mexe na comida ali no meio-tempo); o erro vem de quem foi BARRADO e colheu
+ * noutra celula — o mapa nao previu perder a disputa. */
+static void medir_modelo(void) {
+    int   n = 0;
+    float acc = 0.0f;
+    for (int i = 0; i < n_blocos; i++) {
+        if (!pred_valido[i]) continue;
+        n++;
+        float real = (blocos[i].energia - energia_antes[i]) + METABOLISMO;
+        if (real < 0.0f) real = 0.0f;
+        float pred = pred_colheita[i];
+        float soma = pred + real;
+        float dif  = pred > real ? pred - real : real - pred;
+        acc += soma > 0.0f ? 1.0f - dif / soma : 1.0f;  /* previu 0 e colheu 0 = ok */
+    }
+    ultima_bateria.modelo = n ? acc / n : 0.0f;
 }
 
 /* Desenha um frame inteiro num buffer e cospe de uma vez (menos piscada). */
@@ -825,11 +862,12 @@ static void desenhar(uint32_t seed, long tick) {
         "  urgencia %4.1f±%-3.1f  espaco %4.1f±%-3.1f\n",
         st.hor_m, st.hor_sd, st.desc_m, st.desc_sd,
         st.urg_m, st.urg_sd, st.esp_m, st.esp_sd);
-    /* bateria de desbotamento (0..1): quanto cada faculdade MUDA o comportamento.
-     * agencia = decisao muda com a fome; auto-modelo = muda ao antecipar rivais. */
+    /* bateria de desbotamento (0..1): quanto cada faculdade carrega o comportamento.
+     * modelo = mapa bate com o territorio; agencia = decisao muda com a fome;
+     * auto-modelo = decisao muda ao antecipar rivais. */
     p += sprintf(buf + p,
-        "  bateria (0..1):  agencia %.2f   auto-modelo %.2f\n",
-        ultima_bateria.agencia, ultima_bateria.automodelo);
+        "  bateria (0..1):  modelo %.2f   agencia %.2f   auto-modelo %.2f\n",
+        ultima_bateria.modelo, ultima_bateria.agencia, ultima_bateria.automodelo);
     p += sprintf(buf + p,
         "  legenda: \033[92m@\033[0m forte  \033[93m@\033[0m ok  \033[91m@\033[0m fraco"
         "   \033[2;32m. : *\033[0m comida    (Ctrl+C para sair)\n");
@@ -1035,7 +1073,7 @@ int main(int argc, char **argv) {
         }
         fprintf(logf, "seed,tick,pop,energia_media,comida_total,"
                       "hor_m,hor_sd,desc_m,desc_sd,urg_m,urg_sd,esp_m,esp_sd,"
-                      "agencia,automodelo,phi\n");
+                      "modelo,agencia,automodelo,phi\n");
     }
 
     rng_estado = seed ? seed : 1u;   /* o RNG do universo nasce da seed      */
@@ -1090,28 +1128,32 @@ int main(int argc, char **argv) {
             for (int i = 0; i < n_blocos; i++)
                 if (blocos[i].vivo) decidir(i);
 
-            /* A bateria le as decisoes ja tomadas (intencao x alvo + contrafactuais)
-             * ANTES de resolver() reescrever alvos negados — queremos o efeito
-             * COGNITIVO, nao o do bloqueio fisico. So paga o custo quando alguem
-             * vai consumir o resultado: a tela (interativo) ou o CSV. */
-            if (interativo || logf) ultima_bateria = medir_bateria();
+            /* FASE 1 da bateria: mostradores de ablacao (agencia, auto-modelo) e
+             * guarda a previsao do modelo. So paga o custo quando alguem vai
+             * consumir o resultado: a tela (interativo) ou o CSV. */
+            if (interativo || logf) medir_decisao();
 
             if (logf) {
                 Stats st = coletar_stats();   /* estado no inicio do tick t        */
+                /* modelo vem com 1 tick de atraso por natureza: so da pra pontuar
+                 * uma previsao DEPOIS que o desfecho acontece (ver medir_modelo). */
                 fprintf(logf,
                     "%u,%ld,%d,%.3f,%.1f,"
                     "%.3f,%.3f,%.4f,%.4f,%.3f,%.3f,%.3f,%.3f,"
-                    "%.3f,%.3f,%.3f\n",
+                    "%.3f,%.3f,%.3f,%.3f\n",
                     seed, t, st.pop, st.energia_media, st.comida_total,
                     st.hor_m, st.hor_sd, st.desc_m, st.desc_sd,
                     st.urg_m, st.urg_sd, st.esp_m, st.esp_sd,
-                    ultima_bateria.agencia, ultima_bateria.automodelo,
-                    st.phi_media / 10.0f);
+                    ultima_bateria.modelo, ultima_bateria.agencia,
+                    ultima_bateria.automodelo, st.phi_media / 10.0f);
                 fflush(logf);   /* descarrega ja: Ctrl+C no meio nao perde a cauda */
             }
 
             resolver();
             aplicar_e_comer();
+            /* FASE 2: agora que os blocos comeram (mas ANTES de reproduzir reusar
+             * slots), confere a previsao do modelo contra a colheita real. */
+            if (interativo || logf) medir_modelo();
             reproduzir();
             rebrotar();
             t++;

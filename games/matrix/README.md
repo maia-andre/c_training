@@ -81,7 +81,7 @@ combina com os posicionais em qualquer posição:
 Colunas: `seed, tick, pop, energia_media, comida_total`; para cada um dos 4
 traços do nível 6, a **média** (`_m`) e o **desvio-padrão** (`_sd`)
 (`hor_*, desc_*, urg_*, esp_*`); e os **mostradores da bateria** (abaixo),
-todos normalizados em `[0,1]`: `agencia, automodelo, phi`. Como o universo é
+todos normalizados em `[0,1]`: `modelo, agencia, automodelo, phi`. Como o universo é
 `f(seed)` (ver abaixo), o CSV é **reproduzível bit-a-bit**: qualquer pessoa
 regenera o mesmo dataset a partir da seed. É a base para virar instrumento de
 pesquisa — varrer seeds/parâmetros e medir o que a evolução faz, em vez de só
@@ -89,22 +89,27 @@ assistir.
 
 ### A bateria de desbotamento — medir até onde a palavra mental se aplica
 
-Cada "mostrador" (`0..1`) mede se uma **faculdade carrega o comportamento** —
-por *ablação*: arranca-se a faculdade e vê-se se a decisão muda. Se não muda, a
-palavra mental *desbota*. Mede **função (papel causal), nunca experiência** —
-cada mostrador é uma **caricatura honesta**, no espírito do `Φ~`.
+Cada "mostrador" (`0..1`) mede se uma **faculdade carrega o comportamento**, em
+duas famílias: **ablação** (arranca-se a faculdade — a decisão muda?) e
+**calibração** (uma estrutura interna bate com a realidade?). Se arrancar não
+muda nada, a palavra mental *desbota*. Mede **função (papel causal), nunca
+experiência** — cada mostrador é uma **caricatura honesta**, no espírito do `Φ~`.
 
-| Mostrador | Palavra | Como mede |
-|-----------|---------|-----------|
-| `agencia` | "quer / escolhe" | fração dos blocos cuja decisão muda se só a **fome** muda (mesmo mundo, dois clones faminto×saciado) |
-| `automodelo` | "eu, um entre outros" | fração cuja decisão muda ao **antecipar os rivais** (`intencao` pré-social ≠ `alvo` pós-social) |
-| `phi` (`Φ~/10`) | "integra" | distância entre a ordem de valor *integrada* e a *reativa* (ver [`FILOSOFIA.md`](./FILOSOFIA.md) §5) |
+| Mostrador | Palavra | Família | Como mede |
+|-----------|---------|---------|-----------|
+| `modelo` | "prevê / sabe" | calibração | o bloco prevê a colheita do 1º passo na célula escolhida; 1 tick depois compara com o que **de fato** colheu — `1 − |pred−real|/(pred+real)` |
+| `agencia` | "quer / escolhe" | ablação | fração cuja decisão muda se só a **fome** muda (mesmo mundo, dois clones faminto×saciado) |
+| `automodelo` | "eu, um entre outros" | ablação | fração cuja decisão muda ao **antecipar os rivais** (`intencao` pré-social ≠ `alvo` pós-social) |
+| `phi` (`Φ~/10`) | "integra" | calibração | distância entre a ordem de valor *integrada* e a *reativa* (ver [`FILOSOFIA.md`](./FILOSOFIA.md) §5) |
 
-Observação que já salta do dado: `automodelo` **acende com a lotação** — começa
-em `0` (mundo esparso, ninguém disputa) e sobe conforme a população adensa. A
-"consciência de rivais" só pesa quando há rivais. Pendentes: `modelo` (acurácia
-do `prever_valor` vs. realidade — calibração mapa↔território) e `relato` (a
-fidelidade do auto-relato sob intervenção — o experimento "Bandersnatch").
+Dois achados que já saltam do dado (seed 7): `automodelo` **acende com a
+lotação** — começa em `0` (mundo esparso, ninguém disputa) e sobe a ~`0.35`
+conforme a população adensa; e `modelo` fica **quase perfeito** (`~0.99`),
+caindo de leve com a lotação. Juntos dizem algo forte sobre este universo: o
+bloco modela a *física* (comida, rebrota) com exatidão — o **único** buraco
+entre o mapa e o território é o **social**, o que os outros vão fazer. A "fresta"
+inteira é a disputa. Pendente: `relato` (a fidelidade do auto-relato sob
+intervenção — o experimento "Bandersnatch").
 
 ### A pílula vermelha 🔴 — entrar num bloco
 
@@ -150,8 +155,8 @@ Pra conferir a população num tick específico sem assistir à animação:
   da população (`horizonte`, `desconto`, `urgencia`, `espaco`) — a média deriva
   (evolução do nível 6 ao vivo) e o **desvio** mostra se a população *converge*
   (todos parecidos, desvio→0) ou *diversifica* em nichos (desvio cresce); (3) a
-  **bateria** (`agencia`, `auto-modelo`) — os mostradores de desbotamento descritos
-  acima, ao vivo; (4) a legenda.
+  **bateria** (`modelo`, `agencia`, `auto-modelo`) — os mostradores de desbotamento
+  descritos acima, ao vivo; (4) a legenda.
 
 Dá pra ver emergir: manadas em torno de manchas férteis, colapsos por escassez,
 ciclos de fartura/fome, blocos saciados colonizando a fronteira (nível 4) e —
