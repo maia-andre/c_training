@@ -727,6 +727,51 @@ static Stats coletar_stats(void) {
     return s;     /* struct devolvida por VALOR: copia barata, sem ponteiro solto */
 }
 
+/* ------------------------------------------------------------------ */
+/*  Bateria de desbotamento: para cada palavra mental, um mostrador    */
+/*  [0,1] que mede se a FACULDADE correspondente carrega o             */
+/*  comportamento. Por ablacao: arranco a faculdade e vejo se a        */
+/*  decisao muda. Se nao muda, a palavra desbota. Mede FUNCAO (papel   */
+/*  causal), nunca experiencia — cada mostrador e uma caricatura.      */
+/* ------------------------------------------------------------------ */
+typedef struct {
+    int   n;            /* blocos vivos medidos                                 */
+    float agencia;      /* "quer/escolhe": fracao cuja decisao muda com a fome  */
+    float automodelo;   /* "eu, um entre outros": fracao que muda ao antecipar  */
+} Bateria;
+
+static Bateria ultima_bateria;   /* ultimo tick medido; lido pelo HUD e pelo log */
+
+static Bateria medir_bateria(void) {
+    Bateria b = {0};
+    for (int i = 0; i < n_blocos; i++) if (blocos[i].vivo) {
+        b.n++;
+
+        /* AUTO-MODELO (nv5), de graca: a antecipacao dos rivais mudou a escolha?
+         * intencao = decisao pre-social (declarar); alvo = pos-social (decidir).
+         * Lido aqui, ANTES de resolver(), isola o efeito COGNITIVO do bloqueio. */
+        if (intencao_x[i] != alvo_x[i] || intencao_y[i] != alvo_y[i])
+            b.automodelo += 1.0f;
+
+        /* AGENCIA (nv4): a MESMA situacao, mudando so a fome, muda a decisao?
+         * Reroda a decisao em dois clones — faminto x saciado — no mesmo mundo.
+         * melhor_celula nao tem efeito colateral (so escreve nos out-params),
+         * entao o contrafactual nao suja o estado real do universo. */
+        Bloco faminto = blocos[i], saciado = blocos[i];
+        faminto.energia = 0.10f * SACIADO;   /* a beira da morte */
+        saciado.energia = 1.00f * SACIADO;   /* fome zero        */
+        int fx, fy, sx, sy;
+        melhor_celula(&faminto, i, 1, &fx, &fy);
+        melhor_celula(&saciado, i, 1, &sx, &sy);
+        if (fx != sx || fy != sy)
+            b.agencia += 1.0f;
+    }
+    float inv = b.n ? 1.0f / b.n : 0.0f;
+    b.agencia    *= inv;
+    b.automodelo *= inv;
+    return b;
+}
+
 /* Desenha um frame inteiro num buffer e cospe de uma vez (menos piscada). */
 static void desenhar(uint32_t seed, long tick) {
     static char buf[ALT * LARG * 16 + 4096];
@@ -780,6 +825,11 @@ static void desenhar(uint32_t seed, long tick) {
         "  urgencia %4.1f±%-3.1f  espaco %4.1f±%-3.1f\n",
         st.hor_m, st.hor_sd, st.desc_m, st.desc_sd,
         st.urg_m, st.urg_sd, st.esp_m, st.esp_sd);
+    /* bateria de desbotamento (0..1): quanto cada faculdade MUDA o comportamento.
+     * agencia = decisao muda com a fome; auto-modelo = muda ao antecipar rivais. */
+    p += sprintf(buf + p,
+        "  bateria (0..1):  agencia %.2f   auto-modelo %.2f\n",
+        ultima_bateria.agencia, ultima_bateria.automodelo);
     p += sprintf(buf + p,
         "  legenda: \033[92m@\033[0m forte  \033[93m@\033[0m ok  \033[91m@\033[0m fraco"
         "   \033[2;32m. : *\033[0m comida    (Ctrl+C para sair)\n");
@@ -983,8 +1033,9 @@ int main(int argc, char **argv) {
             fprintf(stderr, "matrix: nao consegui abrir '%s' para escrita\n", log_path);
             return 1;
         }
-        fprintf(logf, "seed,tick,pop,energia_media,comida_total,phi_media,"
-                      "hor_m,hor_sd,desc_m,desc_sd,urg_m,urg_sd,esp_m,esp_sd\n");
+        fprintf(logf, "seed,tick,pop,energia_media,comida_total,"
+                      "hor_m,hor_sd,desc_m,desc_sd,urg_m,urg_sd,esp_m,esp_sd,"
+                      "agencia,automodelo,phi\n");
     }
 
     rng_estado = seed ? seed : 1u;   /* o RNG do universo nasce da seed      */
@@ -1034,20 +1085,31 @@ int main(int argc, char **argv) {
          * resolver -> escrever -> reproduzir -> mundo (as 2 passagens do nv5
          * leem o mesmo estado estavel: a 1a preenche intencoes, a 2a consulta). */
         if (!pausado) {
-            if (logf) {
-                Stats st = coletar_stats();           /* estado ENTRANDO no tick t */
-                fprintf(logf,
-                    "%u,%ld,%d,%.3f,%.1f,%.3f,"
-                    "%.3f,%.3f,%.4f,%.4f,%.3f,%.3f,%.3f,%.3f\n",
-                    seed, t, st.pop, st.energia_media, st.comida_total, st.phi_media,
-                    st.hor_m, st.hor_sd, st.desc_m, st.desc_sd,
-                    st.urg_m, st.urg_sd, st.esp_m, st.esp_sd);
-                fflush(logf);   /* descarrega ja: Ctrl+C no meio nao perde a cauda */
-            }
             for (int i = 0; i < n_blocos; i++)
                 if (blocos[i].vivo) declarar(i);
             for (int i = 0; i < n_blocos; i++)
                 if (blocos[i].vivo) decidir(i);
+
+            /* A bateria le as decisoes ja tomadas (intencao x alvo + contrafactuais)
+             * ANTES de resolver() reescrever alvos negados — queremos o efeito
+             * COGNITIVO, nao o do bloqueio fisico. So paga o custo quando alguem
+             * vai consumir o resultado: a tela (interativo) ou o CSV. */
+            if (interativo || logf) ultima_bateria = medir_bateria();
+
+            if (logf) {
+                Stats st = coletar_stats();   /* estado no inicio do tick t        */
+                fprintf(logf,
+                    "%u,%ld,%d,%.3f,%.1f,"
+                    "%.3f,%.3f,%.4f,%.4f,%.3f,%.3f,%.3f,%.3f,"
+                    "%.3f,%.3f,%.3f\n",
+                    seed, t, st.pop, st.energia_media, st.comida_total,
+                    st.hor_m, st.hor_sd, st.desc_m, st.desc_sd,
+                    st.urg_m, st.urg_sd, st.esp_m, st.esp_sd,
+                    ultima_bateria.agencia, ultima_bateria.automodelo,
+                    st.phi_media / 10.0f);
+                fflush(logf);   /* descarrega ja: Ctrl+C no meio nao perde a cauda */
+            }
+
             resolver();
             aplicar_e_comer();
             reproduzir();
